@@ -1,0 +1,12 @@
+.gradle/
+.gradle-user/
+.gradle-user-home/
+.android-user-home/
+.kotlin/
+.idea/
+**/build/
+local.properties
+keystore.properties
+*.jks
+*.keystore
+google-services.json
