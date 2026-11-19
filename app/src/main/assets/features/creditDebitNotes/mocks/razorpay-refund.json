@@ -1,0 +1,7 @@
+{
+  "success": true,
+  "refund": { "id": "66f000000000000000000001", "status": "pending", "amount_paise": 20000, "method": "razorpay", "provider_refund_id": "rfnd_mock_001", "razorpay_payment_id": "pay_mock_001" },
+  "note_settlement": { "refunded_paise": 10000, "pending_refund_paise": 20000, "manual_refund_paise": 0, "applied_paise": 0, "remaining_paise": 20000 },
+  "note": { "note_number": "CN-FY-0001", "status": "Partially Settled", "previous_note": null, "timeline": [{ "event": "refund_pending", "at": "2026-11-19T12:10:00.000Z", "actor_id": "66d000000000000000000001" }] },
+  "error_example": { "http_status": 422, "error": { "code": "REFUND_EXCEEDS_CAPTURED_BALANCE", "message": "Refund exceeds the captured and unrefunded amount." } }
+}

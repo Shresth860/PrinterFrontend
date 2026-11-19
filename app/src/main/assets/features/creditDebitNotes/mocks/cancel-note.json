@@ -1,0 +1,5 @@
+{
+  "success": true,
+  "note": { "note_id": "66e000000000000000000001", "note_number": "CN-FY-0001", "type": "credit", "status": "Cancelled", "invoice": { "id": "66a000000000000000000007", "number": "INV-2026-0007" }, "previous_note": null, "amount_paise": 50000, "settlement": { "refunded_paise": 0, "pending_refund_paise": 0, "manual_refund_paise": 0, "applied_paise": 0, "remaining_paise": 0 }, "timeline": [{ "event": "issued", "at": "2026-11-19T10:00:00.000Z", "actor_id": "66d000000000000000000001" }, { "event": "cancelled", "at": "2026-11-19T10:30:00.000Z", "actor_id": "66d000000000000000000001", "reason": "Duplicate note" }] },
+  "error_example": { "http_status": 409, "error": { "code": "NOTE_ALREADY_SETTLED", "message": "A note with completed settlement cannot be cancelled." } }
+}

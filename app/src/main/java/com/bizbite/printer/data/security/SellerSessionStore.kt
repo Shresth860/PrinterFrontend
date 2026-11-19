@@ -32,5 +32,17 @@ class SellerIdentityStore @Inject constructor(@ApplicationContext context: Conte
     @Synchronized fun save(id: String?, role: String?, phone: String?, name: String?) {
         prefs.edit().putString("id", id).putString("role", role).putString("phone", phone).putString("name", name).apply()
     }
+    @Synchronized fun id(): String? = prefs.getString("id", null)
+    @Synchronized fun role(): String? = prefs.getString("role", null)
     @Synchronized fun clear() { prefs.edit().clear().apply() }
+}
+
+/** Non-secret owner marker used to avoid silently reusing a device pairing after a seller switch. */
+@Singleton
+class PairedSellerStore @Inject constructor(@ApplicationContext context: Context) {
+    private val prefs = context.getSharedPreferences("paired_seller_owner", Context.MODE_PRIVATE)
+    @Synchronized fun sellerKey(): String? = prefs.getString(KEY, null)
+    @Synchronized fun save(sellerKey: String) { prefs.edit().putString(KEY, sellerKey).apply() }
+    @Synchronized fun clear() { prefs.edit().remove(KEY).apply() }
+    private companion object { const val KEY = "paired_for_seller" }
 }

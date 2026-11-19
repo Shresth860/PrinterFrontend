@@ -26,7 +26,7 @@ The base URL can be overridden with `-PBASE_URL=...` or the `BASE_URL` environme
 
 Debug builds use the selected physical printer for test prints; no virtual printer or byte-discarding simulator is included. When upgrading an existing installation, the app removes the built-in virtual printer and its simulated jobs while preserving physical printer configurations and print history.
 
-The app requires a valid backend pairing code. It does not provide a demo sign-in or bypass backend authentication.
+After seller sign-in, the app requests a pairing code from BizBiteNow and uses it to pair with the printer service automatically. There is no manual pairing-code entry or demo sign-in.
 
 ## Release signing
 
@@ -82,4 +82,3 @@ Access/refresh tokens are stored with AndroidX `EncryptedSharedPreferences` back
 ## Tests
 
 Local unit tests cover ESC/POS command bytes, QR framing, receipt line wrapping, queue idempotency/retry transitions, and durable status outbox synchronization. Physical transport behavior, camera scanning, installation, and printer-specific status bits need on-device validation with supported hardware.
-

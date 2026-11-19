@@ -1,0 +1,8 @@
+{
+  "success": true,
+  "invoice": { "id": "66a000000000000000000007", "number": "INV-2026-0007", "customer_id": "66b000000000000000000001", "total_paise": 105000, "paid_paise": 90000, "due_paise": 15000, "status": "Issued" },
+  "eligibility": { "can_credit": true, "can_debit": true, "can_full_cancel": true, "remaining_credit_paise": 40000, "remaining_qty": [{ "invoice_item_id": "66c000000000000000000001", "quantity": 2 }], "refund_eligible_paise": 25000, "reason_codes": [] },
+  "notes": [{ "note_number": "CN-FY-0001", "status": "Partially Settled", "amount_paise": 65000, "previous_note": null }],
+  "settlement": { "refunded_paise": 30000, "pending_refund_paise": 5000, "manual_refund_paise": 10000, "applied_paise": 5000, "remaining_paise": 15000 },
+  "timeline": [{ "event": "issued", "at": "2026-11-19T10:00:00.000Z", "actor_id": "66d000000000000000000001" }]
+}

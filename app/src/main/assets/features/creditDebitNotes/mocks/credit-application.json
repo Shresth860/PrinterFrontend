@@ -1,0 +1,6 @@
+{
+  "success": true,
+  "application": { "id": "670000000000000000000001", "amount_paise": 10000, "source_note_id": "66e000000000000000000001", "target_invoice_id": "66a000000000000000000008" },
+  "note": { "note_number": "CN-FY-0001", "status": "Partially Settled", "previous_note": null, "settlement": { "refunded_paise": 0, "pending_refund_paise": 0, "manual_refund_paise": 0, "applied_paise": 10000, "remaining_paise": 40000 }, "timeline": [{ "event": "credit_applied", "at": "2026-11-19T12:30:00.000Z", "actor_id": "66d000000000000000000001" }] },
+  "error_example": { "http_status": 422, "error": { "code": "CUSTOMER_MISMATCH", "message": "Credit can only be applied to an invoice for the same customer." } }
+}

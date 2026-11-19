@@ -1,0 +1,5 @@
+{
+  "success": true,
+  "note": { "note_id": "66e000000000000000000001", "note_number": "CN-FY-0002", "type": "credit", "status": "Issued", "invoice": { "id": "66a000000000000000000007", "number": "INV-2026-0007" }, "previous_note": { "id": "66e000000000000000000000", "note_number": "CN-FY-0001" }, "amount_paise": 12000, "tax_treatment": "GST_REVERSAL", "discount_adjustments": [], "settlement": { "refunded_paise": 0, "pending_refund_paise": 0, "manual_refund_paise": 0, "applied_paise": 0, "remaining_paise": 12000 }, "timeline": [{ "event": "issued", "at": "2026-11-19T11:00:00.000Z", "actor_id": "66d000000000000000000001" }] },
+  "error_example": { "http_status": 422, "error": { "code": "CREDIT_EXCEEDS_REMAINING", "message": "Requested credit exceeds the invoice's remaining creditable value." } }
+}

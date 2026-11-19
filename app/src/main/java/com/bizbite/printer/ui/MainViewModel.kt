@@ -17,6 +17,10 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.bizbite.printer.data.local.SettingsStore
+import com.bizbite.printer.data.auth.AutoPairManager
+import com.bizbite.printer.data.auth.AutoPairState
+import com.bizbite.printer.data.security.SellerSessionStore
+import com.bizbite.printer.data.security.SellerIdentityStore
 import com.bizbite.printer.domain.model.PrintJob
 import com.bizbite.printer.domain.model.PrinterConfig
 import com.bizbite.printer.domain.model.PrinterStatus
@@ -41,7 +45,10 @@ import kotlinx.coroutines.launch
 class MainViewModel @Inject constructor(
     application: Application,
     private val repository: PrinterRepository,
-    val settings: SettingsStore
+    val settings: SettingsStore,
+    private val autoPairManager: AutoPairManager,
+    private val sellerSession: SellerSessionStore,
+    private val sellerIdentity: SellerIdentityStore
 ) : AndroidViewModel(application) {
 
     val pendingCount = repository.pendingCount.stateIn(
@@ -88,6 +95,7 @@ class MainViewModel @Inject constructor(
     val internet = MutableStateFlow(false)
     val backendAvailable = MutableStateFlow<Boolean?>(null)
     val printerStatus = MutableStateFlow(PrinterStatus.UNKNOWN)
+    val autoPairState = autoPairManager.state
 
     private val bluetoothReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -117,6 +125,7 @@ class MainViewModel @Inject constructor(
     }
 
     init {
+        autoPairManager.startObservingAuthInvalidations()
         ContextCompat.registerReceiver(
             application,
             bluetoothReceiver,
@@ -135,6 +144,11 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             paired.value = repository.isPaired()
             internet.value = isInternetAvailable()
+
+            if (!sellerSession.token().isNullOrBlank()) {
+                autoPairManager.onSellerLogin(sellerIdentity.id())
+                paired.value = repository.isPaired()
+            }
 
             if (paired.value == true) {
                 checkForUpdate()
@@ -171,16 +185,10 @@ class MainViewModel @Inject constructor(
     // ACCOUNT PAIRING
     // --------------------------------------------------
 
-    fun pair(code: String) = action("Seller account paired") {
-        repository.pair(code)
-
-        paired.value = true
-
-        // Do not start PrintForegroundService here.
-        // Bluetooth runtime permission must be handled first.
-
-        checkForUpdate()
-        refreshPrinterStatus()
+    fun retryPairing() = viewModelScope.launch {
+        val result = autoPairManager.ensurePaired()
+        paired.value = repository.isPaired()
+        if (result is AutoPairState.Failed) message.value = result.reason
     }
 
     // --------------------------------------------------

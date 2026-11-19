@@ -5,7 +5,10 @@ import androidx.lifecycle.viewModelScope
 import android.content.Context
 import com.bizbite.printer.data.remote.BbnApi
 import com.bizbite.printer.data.remote.BbnHttpException
+import com.bizbite.printer.data.auth.AutoPairManager
+import com.bizbite.printer.data.auth.AutoPairState
 import com.bizbite.printer.data.security.BillingAttemptStore
+import com.bizbite.printer.data.security.SellerIdentityStore
 import com.bizbite.printer.data.remote.PrintModeRequest
 import com.bizbite.printer.data.printing.SellerReceiptMapper
 import com.bizbite.printer.domain.model.JobStatus
@@ -37,10 +40,18 @@ data class BillingUiState(
     val categories: List<Category> = emptyList(), val products: List<MenuItem> = emptyList(), val cart: List<CartItem> = emptyList(),
     val tables: List<SellerTable> = emptyList(), val selectedCategory: String? = null, val query: String = "", val customerName: String = "", val customerPhone: String = "", val note: String = "",
     val discountType: DiscountType = DiscountType.FLAT, val discountInput: String = "", val couponCode: String = "", val orderType: OrderType = OrderType.TAKEAWAY,
-    val paymentMode: PaymentMode = PaymentMode.CASH, val selectedTable: String? = null, val loading: Boolean = true, val processing: Boolean = false, val error: String? = null, val printStatus: String? = null, val billOutcomeUnknown: Boolean = false
+    val paymentMode: PaymentMode = PaymentMode.CASH, val selectedTable: String? = null, val loading: Boolean = true, val processing: Boolean = false, val error: String? = null, val printStatus: String? = null, val billOutcomeUnknown: Boolean = false,
+    val pairingState: AutoPairState = AutoPairState.NotPaired, val printRetryAvailable: Boolean = false
 ) {
     val totals get() = calculateBillTotals(cart, discountType, discountInput.toDoubleOrNull() ?: 0.0)
 }
+
+@kotlinx.serialization.Serializable
+private data class PendingBillingPrint(
+    val order: com.bizbite.printer.data.remote.SellerOrderDto,
+    val mode: String,
+    val sellerKey: String? = null
+)
 
 @HiltViewModel
 class BillingViewModel @Inject constructor(
@@ -49,14 +60,33 @@ class BillingViewModel @Inject constructor(
     private val printerRepository: PrinterRepository,
     private val receiptMapper: SellerReceiptMapper,
     private val attemptStore: BillingAttemptStore,
+    private val autoPairManager: AutoPairManager,
+    private val sellerIdentity: SellerIdentityStore,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
     private val confirming = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-    private val mutableState = MutableStateFlow(BillingUiState(billOutcomeUnknown = !attemptStore.requestJson().isNullOrBlank()))
+    private val pendingPrint = kotlinx.coroutines.flow.MutableStateFlow(
+        attemptStore.pendingPrintJson()?.let { runCatching { Json.decodeFromString<PendingBillingPrint>(it) }.getOrNull() }
+    )
+    private val mutableState = MutableStateFlow(BillingUiState(
+        billOutcomeUnknown = !attemptStore.requestJson().isNullOrBlank(),
+        printRetryAvailable = pendingPrint.value != null
+    ))
     val state = mutableState.asStateFlow()
 
     init {
         refreshMenu()
+        viewModelScope.launch {
+            autoPairManager.state.collect { pairing ->
+                mutableState.value = mutableState.value.copy(pairingState = pairing)
+            }
+        }
+        pendingPrint.value?.let {
+            mutableState.value = mutableState.value.copy(
+                printStatus = "Order ${it.order.id ?: "created"} is waiting for printer setup. Retry print when setup is ready.",
+                printRetryAvailable = true
+            )
+        }
         viewModelScope.launch {
             printerRepository.jobs.collect { jobs ->
                 jobs.filter { it.id.startsWith(SELLER_PRINT_PREFIX) && it.status == JobStatus.SUCCESS }.forEach { job ->
@@ -121,6 +151,7 @@ class BillingViewModel @Inject constructor(
     fun generate(mode: String, onMessage: (String) -> Unit) {
         val s = mutableState.value
         if (s.billOutcomeUnknown) { onMessage("A previous bill request may have reached BBN. Check Seller order history before submitting another bill."); return }
+        if (pendingPrint.value != null) { onMessage("A bill is already created and waiting to print. Use Retry print instead of creating another bill."); return }
         if (s.processing || s.cart.isEmpty() || (s.orderType == OrderType.DINE_IN && s.selectedTable == null)) return
         if (s.discountType == DiscountType.PERCENT && (s.discountInput.toDoubleOrNull() ?: 0.0) > 100.0) { onMessage("discount_percent"); return }
         if (s.discountType == DiscountType.FLAT && (s.discountInput.toDoubleOrNull() ?: 0.0) > s.totals.subtotal) { onMessage("discount_flat"); return }
@@ -138,8 +169,13 @@ class BillingViewModel @Inject constructor(
                 attemptStore.save(Json.encodeToString(request))
                 val created = repository.createBill(request)
                 attemptStore.clear()
+                pendingPrint.value = PendingBillingPrint(created, mode, sellerIdentity.id())
+                attemptStore.savePendingPrint(Json.encodeToString(pendingPrint.value!!))
                 mutableState.value = mutableState.value.copy(cart = emptyList(), discountInput = "", couponCode = "", processing = false, printStatus = "Order ${created.id ?: "created"}; server subtotal ₹${created.subtotal ?: 0.0}, discount ₹${created.discountAmount ?: 0.0}, tax ₹${created.taxAmount ?: 0.0}, total ₹${created.totalAmount ?: 0.0}; preparing $mode print.")
                 try {
+                    mutableState.value = mutableState.value.copy(pairingState = AutoPairState.Pairing, printStatus = "Printer setup in progress, thoda wait karein.")
+                    val pairing = autoPairManager.ensurePaired()
+                    if (pairing is AutoPairState.Failed && !printerRepository.isPaired()) error(pairing.reason)
                     val orderId = created.id ?: error("Bill was created but the response omitted the order ID required for print tracking.")
                     val reserved = api.reservePrintNumbers(orderId, PrintModeRequest(mode))
                     if (!reserved.success) error(reserved.message ?: "Print numbers could not be reserved.")
@@ -154,10 +190,14 @@ class BillingViewModel @Inject constructor(
                     if (!PrintForegroundService.start(context, PrintForegroundService.ACTION_PRINT_QUEUE)) {
                         error("Order created and print jobs queued, but Android could not start the print service.")
                     }
+                    pendingPrint.value = null
+                    attemptStore.clearPendingPrint()
+                    mutableState.value = mutableState.value.copy(printRetryAvailable = false, processing = false)
                     mutableState.value = mutableState.value.copy(printStatus = "Order ${created.id} created. Waiting for physical printer result.")
                     onMessage("Bill created: ${created.id}. Server total ₹${created.totalAmount ?: 0.0}. Print job queued.")
                 } catch (failure: Exception) {
                     val safeMessage = if (failure is BbnHttpException) failure.message else failure.message?.takeIf { it.contains("printer", true) || it.contains("paired", true) } ?: "Printing could not start; the order remains created and unconfirmed."
+                    mutableState.value = mutableState.value.copy(processing = false, printRetryAvailable = true)
                     mutableState.value = mutableState.value.copy(printStatus = "Order ${created.id} created. $safeMessage")
                     onMessage("Bill created: ${created.id}, server total ₹${created.totalAmount ?: 0.0}. ${failure.message ?: "Printing could not start."}")
                 }
@@ -168,6 +208,48 @@ class BillingViewModel @Inject constructor(
                 if (!unknown) attemptStore.clear()
                 mutableState.value = mutableState.value.copy(processing = false, error = message, billOutcomeUnknown = unknown)
                 onMessage(message)
+            }
+        }
+    }
+
+    fun retryPrint(onMessage: (String) -> Unit) {
+        val pending = pendingPrint.value ?: return
+        if (mutableState.value.processing) return
+        if (pending.sellerKey.isNullOrBlank() || pending.sellerKey != sellerIdentity.id()) {
+            mutableState.value = mutableState.value.copy(printRetryAvailable = false, printStatus = "Sign in to the original seller account to retry this saved bill's print.")
+            return
+        }
+        mutableState.value = mutableState.value.copy(processing = true, printRetryAvailable = false, printStatus = "Printer setup in progress, thoda wait karein.")
+        viewModelScope.launch {
+            try {
+                val pairing = autoPairManager.ensurePaired()
+                if (pairing is AutoPairState.Failed && !printerRepository.isPaired()) error(pairing.reason)
+                val orderId = pending.order.id ?: error("Saved bill is missing its order ID.")
+                val reserved = api.reservePrintNumbers(orderId, PrintModeRequest(pending.mode))
+                if (!reserved.success) error(reserved.message ?: "Print numbers could not be reserved.")
+                val numbers = reserved.numbers ?: error("Print number response did not include numbers.")
+                val docModes = if (pending.mode == "both") listOf("invoice", "kot") else listOf(pending.mode)
+                val existingJobs = printerRepository.jobs.first().associateBy { it.id }
+                for (docMode in docModes) {
+                    val jobId = "$SELLER_PRINT_PREFIX$orderId:$docMode"
+                    val existing = existingJobs[jobId]
+                    if (existing == null || existing.status == JobStatus.FAILED || existing.status == JobStatus.CANCELLED) {
+                        val number = if (docMode == "invoice") numbers.invoiceNumber ?: "INV-${numbers.invoiceSeq ?: ""}" else numbers.kotNumber?.toString() ?: ""
+                        printerRepository.enqueueSellerPrint(jobId, receiptMapper.map(pending.order, docMode, number))
+                    }
+                }
+                if (!PrintForegroundService.start(context, PrintForegroundService.ACTION_PRINT_QUEUE)) {
+                    error("Order $orderId is saved; Android could not start the print service.")
+                }
+                pendingPrint.value = null
+                attemptStore.clearPendingPrint()
+                mutableState.value = mutableState.value.copy(processing = false, printRetryAvailable = false, printStatus = "Order $orderId created. Waiting for physical printer result.")
+                onMessage("Bill created: $orderId. Print job queued.")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                mutableState.value = mutableState.value.copy(processing = false, printRetryAvailable = true, printStatus = "Order ${pending.order.id ?: "created"} is saved. ${failure.message ?: "Printer setup failed."}")
+                onMessage("Order ${pending.order.id ?: "created"} is already billed. Retry print; do not create another bill.")
             }
         }
     }

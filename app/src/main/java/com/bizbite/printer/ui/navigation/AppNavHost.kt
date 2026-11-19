@@ -21,7 +21,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navOptions
 import com.bizbite.printer.ui.MainViewModel
-import com.bizbite.printer.ui.billing.BillingScreen
+import com.bizbite.printer.ui.billing.BillingHubScreen
 import com.bizbite.printer.ui.login.LoginScreen
 import com.bizbite.printer.ui.screens.DashboardScreen
 import com.bizbite.printer.ui.screens.HistoryScreen
@@ -79,7 +79,7 @@ fun AppNavHost(navController: NavHostController) {
             NavHost(navController, startDestination = "login", modifier = Modifier.padding(padding).consumeWindowInsets(padding)) {
                 composable("login") { LoginScreen(onLoggedIn = { }) }
                 composable("dashboard") { DashboardScreen(model, onOpenPrinters = { navController.navigate("printers") { launchSingleTop = true } }, onOpenOrders = { navController.navigate("history") }, onOpenHistory = { navController.navigate("printer-history") }) }
-                composable("billing") { BillingScreen(onOpenHistory = { navController.navigate("history") }, onOpenPrintSettings = { navController.navigate("settings") { launchSingleTop = true } }) }
+                composable("billing") { BillingHubScreen(onOpenPrintSettings = { navController.navigate("settings") { launchSingleTop = true } }) }
                 composable("settings") {
                     SettingsScreen(model, onUnpair = { model.unpair() }, onOpenPairing = { navController.navigate("pair") }, onLogout = { session.logout() }, onOpenPrinterHistory = { navController.navigate("printer-history") }, onOpenPrinters = { navController.navigate("printers") { launchSingleTop = true } })
                 }

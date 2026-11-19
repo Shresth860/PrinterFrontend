@@ -2,6 +2,7 @@ package com.bizbite.printer.data.session
 
 import com.bizbite.printer.data.security.SellerSessionStore
 import com.bizbite.printer.data.security.SellerIdentityStore
+import com.bizbite.printer.features.creditDebitNotes.store.CreditDebitNotesCache
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,7 +16,11 @@ interface SessionManager {
 }
 
 @Singleton
-class PersistentSessionManager @Inject constructor(private val store: SellerSessionStore, private val identity: SellerIdentityStore) : SessionManager {
+class PersistentSessionManager @Inject constructor(
+    private val store: SellerSessionStore,
+    private val identity: SellerIdentityStore,
+    private val notesCache: CreditDebitNotesCache
+) : SessionManager {
     private val loggedIn = MutableStateFlow(!store.token().isNullOrBlank())
     override val isLoggedIn: StateFlow<Boolean> = loggedIn.asStateFlow()
     private var token: String? = null
@@ -28,6 +33,7 @@ class PersistentSessionManager @Inject constructor(private val store: SellerSess
     }
 
     override fun logout() {
+        notesCache.clear()
         store.clear()
         identity.clear()
         token = null

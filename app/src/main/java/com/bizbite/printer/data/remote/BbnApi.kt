@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
+import retrofit2.http.PATCH
 import retrofit2.http.Path
 import retrofit2.http.Query
 import java.io.IOException
@@ -22,6 +23,12 @@ interface ApiEnvelope { val success: Boolean; val message: String? }
     @SerialName("fcm_token") val fcmToken: String? = null
 )
 @Serializable data class ApiMessageResponse(override val success: Boolean = false, override val message: String? = null) : ApiEnvelope
+@Serializable data class PairingCodeResponse(
+    override val success: Boolean = false,
+    override val message: String? = null,
+    val code: String? = null,
+    val expiresAt: String? = null
+) : ApiEnvelope
 @Serializable data class LoginInitResponse(override val success: Boolean = false, override val message: String? = null, val reqId: String? = null, val requiresOtp: Boolean? = null, val role: String? = null, val token: String? = null, val isAgreed: Boolean? = null, val user: BbnUser? = null, val profile: kotlinx.serialization.json.JsonElement? = null) : ApiEnvelope
 @Serializable data class OtpVerifyResponse(override val success: Boolean = false, override val message: String? = null, val verificationToken: String? = null, val mobile: String? = null) : ApiEnvelope
 @Serializable data class LoginResponse(override val success: Boolean = false, override val message: String? = null, val token: String? = null, val isAgreed: Boolean? = null, val user: BbnUser? = null, val profile: kotlinx.serialization.json.JsonElement? = null) : ApiEnvelope
@@ -49,6 +56,7 @@ interface ApiEnvelope { val success: Boolean; val message: String? }
 @Serializable data class PrintNumbersResponse(override val success: Boolean = false, override val message: String? = null, val numbers: PrintNumbersDto? = null) : ApiEnvelope
 
 interface BbnApi {
+    @POST("seller/printer/pairing-code") suspend fun createPairingCode(): PairingCodeResponse
     @POST("users/login/app") suspend fun loginApp(@Body body: LoginAppRequest): LoginResponse
     @POST("users/login/init") suspend fun loginInit(@Body body: LoginInitRequest): LoginInitResponse
     @POST("users/verify-otp") suspend fun verifyOtp(@Body body: OtpVerifyRequest): OtpVerifyResponse
@@ -62,4 +70,14 @@ interface BbnApi {
     @GET("orders/{id}") suspend fun order(@Path("id") id: String): OrderDetailResponse
     @POST("orders/{id}/print-numbers") suspend fun reservePrintNumbers(@Path("id") id: String, @Body body: PrintModeRequest): PrintNumbersResponse
     @POST("orders/{id}/print-confirm") suspend fun confirmPrint(@Path("id") id: String, @Body body: PrintModeRequest): PrintNumbersResponse
+
+    @GET("credit-debit-notes") suspend fun creditDebitNotes(): kotlinx.serialization.json.JsonObject
+    @GET("credit-debit-notes/{id}") suspend fun creditDebitNote(@Path("id") id: String): kotlinx.serialization.json.JsonObject
+    @POST("credit-debit-notes/{type}") suspend fun createCreditDebitNote(
+        @Path("type") type: String,
+        @Body body: kotlinx.serialization.json.JsonObject
+    ): kotlinx.serialization.json.JsonObject
+    @PATCH("credit-debit-notes/{id}/cancel") suspend fun cancelCreditDebitNote(
+        @Path("id") id: String
+    ): kotlinx.serialization.json.JsonObject
 }

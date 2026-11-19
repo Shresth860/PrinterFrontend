@@ -120,14 +120,14 @@ fun BillingScreen(
                 }
                 if (wide) {
                     Card(Modifier.weight(0.38f).fillMaxSize(), shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) {
-                        BillContent(state, viewModel, onOpenHistory, onOpenPrintSettings, enabled = !state.processing, onGenerate = { mode -> viewModel.generate(mode) { msg -> showBillMessage(msg) } }, modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState()))
+                        BillContent(state, viewModel, onOpenHistory, onOpenPrintSettings, enabled = !state.processing, onGenerate = { mode -> viewModel.generate(mode) { msg -> showBillMessage(msg) } }, onRetryPrint = { viewModel.retryPrint { msg -> showBillMessage(msg) } }, modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState()))
                     }
                 }
             }
         }
     }
     if (showBill) ModalBottomSheet(onDismissRequest = { showBill = false }) {
-        BillContent(state, viewModel, onOpenHistory, onOpenPrintSettings, enabled = !state.processing, onGenerate = { mode -> viewModel.generate(mode) { msg -> showBillMessage(msg, closeSheet = true) } }, modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp))
+        BillContent(state, viewModel, onOpenHistory, onOpenPrintSettings, enabled = !state.processing, onGenerate = { mode -> viewModel.generate(mode) { msg -> showBillMessage(msg, closeSheet = true) } }, onRetryPrint = { viewModel.retryPrint { msg -> showBillMessage(msg) } }, modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp))
     }
 }
 
@@ -139,6 +139,7 @@ private fun BillContent(
     onOpenPrintSettings: () -> Unit,
     enabled: Boolean,
     onGenerate: (String) -> Unit,
+    onRetryPrint: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var mode by remember { mutableStateOf("both") }
@@ -177,12 +178,16 @@ private fun BillContent(
             }
         }
         BillSummary(state.totals)
-        PrimaryButton(
-            stringResource(R.string.print_now),
-            { onGenerate(mode) },
-            Modifier.fillMaxWidth(),
-            enabled = enabled && !state.billOutcomeUnknown && state.cart.isNotEmpty() && (state.orderType != OrderType.DINE_IN || state.selectedTable != null)
-        )
+        if (state.printRetryAvailable) {
+            PrimaryButton(stringResource(R.string.retry_print_only), onRetryPrint, Modifier.fillMaxWidth(), enabled = enabled)
+        } else {
+            PrimaryButton(
+                stringResource(R.string.print_now),
+                { onGenerate(mode) },
+                Modifier.fillMaxWidth(),
+                enabled = enabled && !state.billOutcomeUnknown && state.cart.isNotEmpty() && (state.orderType != OrderType.DINE_IN || state.selectedTable != null)
+            )
+        }
         Spacer(Modifier.height(8.dp))
     }
 }

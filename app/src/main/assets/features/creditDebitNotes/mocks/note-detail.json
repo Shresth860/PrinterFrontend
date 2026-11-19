@@ -1,0 +1,5 @@
+{
+  "success": true,
+  "note": { "note_id": "66e000000000000000000001", "note_number": "CN-FY-0001", "type": "credit", "status": "Partially Settled", "invoice": { "id": "66a000000000000000000007", "number": "INV-2026-0007" }, "previous_note": null, "amount_paise": 50000, "tax_treatment": "GST_REVERSAL", "discount_adjustments": [], "settlement": { "refunded_paise": 20000, "pending_refund_paise": 5000, "manual_refund_paise": 5000, "applied_paise": 5000, "remaining_paise": 15000 }, "timeline": [{ "event": "issued", "at": "2026-11-19T10:00:00.000Z", "actor_id": "66d000000000000000000001" }, { "event": "refund_pending", "at": "2026-11-19T10:10:00.000Z", "actor_id": "66d000000000000000000001" }, { "event": "refund_succeeded", "at": "2026-11-19T10:15:00.000Z", "actor_id": "SYSTEM" }] },
+  "error_example": { "http_status": 404, "error": { "code": "NOTE_NOT_FOUND", "message": "Note not found." } }
+}

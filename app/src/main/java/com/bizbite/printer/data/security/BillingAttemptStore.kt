@@ -16,6 +16,9 @@ class BillingAttemptStore @Inject constructor(@ApplicationContext context: Conte
     )
     @Synchronized fun requestJson(): String? = prefs.getString(REQUEST, null)
     @Synchronized fun save(requestJson: String) { prefs.edit().putString(REQUEST, requestJson).putLong(CREATED_AT, System.currentTimeMillis()).apply() }
-    @Synchronized fun clear() { prefs.edit().clear().apply() }
-    private companion object { const val REQUEST = "request_json"; const val CREATED_AT = "created_at" }
+    @Synchronized fun pendingPrintJson(): String? = prefs.getString(PENDING_PRINT, null)
+    @Synchronized fun savePendingPrint(json: String) { prefs.edit().putString(PENDING_PRINT, json).apply() }
+    @Synchronized fun clearPendingPrint() { prefs.edit().remove(PENDING_PRINT).apply() }
+    @Synchronized fun clear() { prefs.edit().remove(REQUEST).remove(CREATED_AT).apply() }
+    private companion object { const val REQUEST = "request_json"; const val PENDING_PRINT = "pending_print_json"; const val CREATED_AT = "created_at" }
 }

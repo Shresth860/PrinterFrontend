@@ -60,7 +60,7 @@ class PrinterRepositoryImpl @Inject constructor(
     override suspend fun backendAvailable() = api.health().status.equals("UP", ignoreCase = true)
 
     override suspend fun pair(code: String) {
-        require(code.length == 8 && code.all(Char::isLetterOrDigit)) { "Enter a valid 8-character pairing code." }
+        require(code.length == 8 && code.all(Char::isLetterOrDigit)) { "The pairing code must contain 8 letters or digits." }
         val result = api.pair(
             PairRequest(
                 code = code.uppercase(),
@@ -276,18 +276,46 @@ class PrinterRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun syncPrinters() {
-        dao.unsyncedPrinters().forEach { entity ->
-            val response = api.savePrinter(
-                PrinterRegistration(
-                    entity.id, entity.name, entity.type, entity.address,
-                    entity.port, entity.paperWidthMm, entity.isDefault
-                )
-            )
-            if (!response.isSuccessful) throw java.io.IOException("Printer configuration sync failed (HTTP ${response.code()}).")
-            dao.markPrinterSynced(entity.id)
+ 
+override suspend fun syncPrinters() {
+    dao.unsyncedPrinters().forEach { entity ->
+        // Only 58mm and 80mm are supported. Repair invalid saved values to 58mm.
+        val normalizedWidth = when (entity.paperWidthMm) {
+            58, 80 -> entity.paperWidthMm
+            else -> 58
         }
+
+        // Persist the repaired value before syncing.
+        val normalizedEntity = if (entity.paperWidthMm != normalizedWidth) {
+            entity.copy(paperWidthMm = normalizedWidth).also {
+                dao.upsertPrinter(it)
+            }
+        } else {
+            entity
+        }
+
+        val response = api.savePrinter(
+            PrinterRegistration(
+                normalizedEntity.id,
+                normalizedEntity.name,
+                normalizedEntity.type,
+                normalizedEntity.address,
+                normalizedEntity.port,
+                normalizedEntity.paperWidthMm,
+                normalizedEntity.isDefault
+            )
+        )
+
+        if (!response.isSuccessful) {
+            throw java.io.IOException(
+                "Printer configuration sync failed (HTTP ${response.code()})."
+            )
+        }
+
+        dao.markPrinterSynced(normalizedEntity.id)
     }
+}
+
 
     override suspend fun savePrinter(config: PrinterConfig) {
         require(config.type != com.bizbite.printer.domain.model.ConnectionType.MOCK) {

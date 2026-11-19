@@ -3,6 +3,7 @@ package com.bizbite.printer.ui.login
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bizbite.printer.data.auth.AuthRepository
+import com.bizbite.printer.data.auth.AutoPairManager
 import com.bizbite.printer.data.remote.BbnHttpException
 import com.bizbite.printer.data.session.SessionManager
 import com.bizbite.printer.data.security.SellerIdentityStore
@@ -43,7 +44,8 @@ fun loginErrorMessage(failure: Throwable): String = when (failure) {
 class LoginViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val session: SessionManager,
-    private val identity: SellerIdentityStore
+    private val identity: SellerIdentityStore,
+    private val autoPairManager: AutoPairManager
 ) : ViewModel() {
     private val mutableState = MutableStateFlow(LoginUiState())
     val state = mutableState.asStateFlow()
@@ -77,8 +79,9 @@ class LoginViewModel @Inject constructor(
                     )
                     return@launch
                 }
-                identity.save(result.user?.id, result.user?.role, result.user?.phone, result.user?.name)
+                identity.save(result.sellerKey, result.user?.role, result.user?.phone, result.user?.name)
                 session.login(result.token)
+                viewModelScope.launch { autoPairManager.onSellerLogin(result.sellerKey) }
                 mutableState.value = mutableState.value.copy(step = LoginStep.SUCCESS)
             } catch (failure: Exception) {
                 mutableState.value = mutableState.value.copy(error = loginErrorMessage(failure).take(180))

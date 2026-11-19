@@ -26,6 +26,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +37,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bizbite.printer.R
+import com.bizbite.printer.data.auth.AutoPairState
 import com.bizbite.printer.domain.model.ConnectionType
 import com.bizbite.printer.domain.model.JobStatus
 import com.bizbite.printer.domain.model.PrintJob
@@ -87,6 +89,28 @@ fun SecondaryButton(
         shape = MaterialTheme.shapes.small,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
     ) { Text(text) }
+}
+
+@Composable
+fun AutoPairNotice(state: AutoPairState, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    when (state) {
+        AutoPairState.NotPaired, AutoPairState.Pairing -> Text(
+            stringResource(R.string.printer_setup_in_progress),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = modifier
+        )
+        AutoPairState.Paired -> Text(
+            stringResource(R.string.printer_setup_connected),
+            color = OnlineColor,
+            modifier = modifier
+        )
+        is AutoPairState.Failed -> Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.printer_setup_failed, state.reason), Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
+            if (state.retryable) TextButton(onClick = onRetry, modifier = Modifier.defaultMinSize(minHeight = 48.dp)) {
+                Text(stringResource(R.string.retry))
+            }
+        }
+    }
 }
 
 enum class StatusKind { ONLINE, OFFLINE, ERROR, QUEUED, NEUTRAL }

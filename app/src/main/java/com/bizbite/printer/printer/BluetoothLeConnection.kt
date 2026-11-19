@@ -11,6 +11,7 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
@@ -21,9 +22,9 @@ class BluetoothLeConnection(
     private val context: Context,
     private val device: BluetoothDevice
 ) : PrinterConnection {
-    private var gatt: BluetoothGatt? = null
-    private var output: BluetoothGattCharacteristic? = null
-    private var pendingWrite: ((Result<Unit>) -> Unit)? = null
+    @Volatile private var gatt: BluetoothGatt? = null
+    @Volatile private var output: BluetoothGattCharacteristic? = null
+    @Volatile private var pendingWrite: ((Result<Unit>) -> Unit)? = null
 
     override val isConnected: Boolean
         get() = gatt != null && output != null
@@ -40,9 +41,20 @@ class BluetoothLeConnection(
                             status: Int,
                             newState: Int
                         ) {
-                            if (status != BluetoothGatt.GATT_SUCCESS) {
+                            if (status != BluetoothGatt.GATT_SUCCESS || newState == BluetoothProfile.STATE_DISCONNECTED) {
+                                val failure = IOException(
+                                    if (status != BluetoothGatt.GATT_SUCCESS) "BLE connection failed (status $status)."
+                                    else "BLE printer disconnected."
+                                )
+                                if (gatt === bluetoothGatt) {
+                                    gatt = null
+                                    output = null
+                                }
+                                val write = pendingWrite
+                                pendingWrite = null
+                                write?.invoke(Result.failure(failure))
                                 if (continuation.isActive) {
-                                    continuation.resumeWithException(IOException("BLE connection failed (status $status)."))
+                                    continuation.resumeWithException(failure)
                                 }
                                 bluetoothGatt.close()
                                 return
@@ -51,11 +63,6 @@ class BluetoothLeConnection(
                                 BluetoothProfile.STATE_CONNECTED -> {
                                     if (!bluetoothGatt.discoverServices() && continuation.isActive) {
                                         continuation.resumeWithException(IOException("Could not discover BLE printer services."))
-                                    }
-                                }
-                                BluetoothProfile.STATE_DISCONNECTED -> {
-                                    if (continuation.isActive) {
-                                        continuation.resumeWithException(IOException("BLE printer disconnected."))
                                     }
                                 }
                             }
@@ -146,35 +153,37 @@ class BluetoothLeConnection(
             while (offset < bytes.size) {
                 val chunk = bytes.copyOfRange(offset, minOf(offset + MAX_CHUNK_BYTES, bytes.size))
                 if (supportsResponse) {
-                    suspendCancellableCoroutine<Unit> { continuation ->
-                        pendingWrite = { result ->
-                            if (continuation.isActive) {
-                                result.fold(
-                                    onSuccess = { continuation.resume(Unit) },
-                                    onFailure = continuation::resumeWithException
-                                )
+                    withTimeout(WRITE_ACK_TIMEOUT_MS) {
+                        suspendCancellableCoroutine<Unit> { continuation ->
+                            pendingWrite = { result ->
+                                if (continuation.isActive) {
+                                    result.fold(
+                                        onSuccess = { continuation.resume(Unit) },
+                                        onFailure = continuation::resumeWithException
+                                    )
+                                }
                             }
-                        }
-                        try {
-                            val started = if (Build.VERSION.SDK_INT >= 33) {
-                                active.writeCharacteristic(characteristic, chunk, writeType) == BluetoothGatt.GATT_SUCCESS
-                            } else {
-                                @Suppress("DEPRECATION")
-                                characteristic.value = chunk
-                                @Suppress("DEPRECATION")
-                                characteristic.writeType = writeType
-                                @Suppress("DEPRECATION")
-                                active.writeCharacteristic(characteristic)
-                            }
-                            transferStarted = started
-                            if (!started) {
+                            try {
+                                val started = if (Build.VERSION.SDK_INT >= 33) {
+                                    active.writeCharacteristic(characteristic, chunk, writeType) == BluetoothGatt.GATT_SUCCESS
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    characteristic.value = chunk
+                                    @Suppress("DEPRECATION")
+                                    characteristic.writeType = writeType
+                                    @Suppress("DEPRECATION")
+                                    active.writeCharacteristic(characteristic)
+                                }
+                                transferStarted = started
+                                if (!started) {
+                                    pendingWrite = null
+                                    continuation.resumeWithException(IOException("Could not write to the BLE printer."))
+                                }
+                                continuation.invokeOnCancellation { pendingWrite = null }
+                            } catch (failure: Exception) {
                                 pendingWrite = null
-                                continuation.resumeWithException(IOException("Could not write to the BLE printer."))
+                                continuation.resumeWithException(failure)
                             }
-                            continuation.invokeOnCancellation { pendingWrite = null }
-                        } catch (failure: Exception) {
-                            pendingWrite = null
-                            continuation.resumeWithException(failure)
                         }
                     }
                 } else {
@@ -195,6 +204,13 @@ class BluetoothLeConnection(
                 offset += chunk.size
             }
         } catch (cancelled: CancellationException) {
+            if (cancelled is TimeoutCancellationException) {
+                disconnect()
+                throw PartialWriteException(
+                    maxOf(offset, 1),
+                    IOException("Timed out waiting for a BLE printer write acknowledgement.", cancelled)
+                )
+            }
             throw cancelled
         } catch (failure: Exception) {
             if (offset > 0 || transferStarted) {
@@ -236,6 +252,7 @@ class BluetoothLeConnection(
 
     companion object {
         private const val CONNECT_TIMEOUT_MS = 15_000L
+        private const val WRITE_ACK_TIMEOUT_MS = 10_000L
         private const val MAX_CHUNK_BYTES = 20
         private const val NO_RESPONSE_CHUNK_DELAY_MS = 10L
     }

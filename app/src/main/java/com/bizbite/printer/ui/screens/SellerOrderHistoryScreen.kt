@@ -163,7 +163,12 @@ class SellerOrderHistoryViewModel @Inject constructor(
 }
 
 @Composable
-fun SellerOrderHistoryScreen(viewModel: SellerOrderHistoryViewModel = hiltViewModel()) {
+fun SellerOrderHistoryScreen(
+    viewModel: SellerOrderHistoryViewModel = hiltViewModel(),
+    onCreditNote: (String) -> Unit = {}, onDebitNote: (String) -> Unit = {},
+    onFullCancellation: (String) -> Unit = {}, onViewNotes: (String) -> Unit = {},
+    onPaymentHistory: (String) -> Unit = {}, canCreateNotes: Boolean = true, canFullCancel: Boolean = false
+) {
     val state by viewModel.state.collectAsState()
     LaunchedEffect(Unit) { if (state.orders.isEmpty()) viewModel.loadNext() }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -187,6 +192,15 @@ fun SellerOrderHistoryScreen(viewModel: SellerOrderHistoryViewModel = hiltViewMo
                 if (order.invoicePrintedAt == null) OutlinedButton(onClick = { viewModel.printDocument(order, "invoice") }) { Text("Print invoice") }
                 if (order.kotPrintedAt == null) OutlinedButton(onClick = { viewModel.printDocument(order, "kot") }) { Text("Print KOT") }
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { order.id?.let(onCreditNote) }, enabled = canCreateNotes && !order.id.isNullOrBlank()) { Text("Credit Note") }
+                OutlinedButton(onClick = { order.id?.let(onDebitNote) }, enabled = canCreateNotes && !order.id.isNullOrBlank()) { Text("Debit Note") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { order.id?.let(onFullCancellation) }, enabled = canFullCancel && !order.id.isNullOrBlank()) { Text("Full Cancellation") }
+                OutlinedButton(onClick = { order.id?.let(onViewNotes) }, enabled = !order.id.isNullOrBlank()) { Text("View Notes") }
+            }
+            OutlinedButton(onClick = { order.id?.let(onPaymentHistory) }, enabled = !order.id.isNullOrBlank()) { Text("Payment/Refund History") }
             order.items.forEach { element ->
                 val item = element as? JsonObject ?: return@forEach
                 val name = item.str("name") ?: item["product_id"]?.let { product -> runCatching { product.jsonObject.str("name") }.getOrNull() } ?: "Product"

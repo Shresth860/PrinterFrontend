@@ -19,7 +19,7 @@ class SellerReceiptMapperTest {
         val kot = mapper.map(order, "kot", "17")
         assertTrue(invoice.contains("INV-0001"))
         assertTrue(invoice.contains("Paneer Wrap"))
-        assertTrue(invoice.contains("₹95.0"))
+        assertTrue(invoice.contains("Rs 95.0"))
         assertTrue(kot.contains("KITCHEN ORDER TICKET"))
         assertTrue(kot.contains("Paneer Wrap"))
         assertFalse(kot.contains("TOTAL"))

@@ -23,7 +23,10 @@ class TokenAuthenticator(
     private val refreshLock = Any()
 
     override fun authenticate(route: Route?, response: Response): Request? {
-        if (responseCount(response) >= 2) return null
+        if (responseCount(response) >= 2) {
+            tokenStore.clearAfterAuthFailure()
+            return null
+        }
         synchronized(refreshLock) {
             val failedToken = response.request.header("Authorization")?.removePrefix("Bearer ")
             val current = tokenStore.accessToken()
@@ -31,7 +34,7 @@ class TokenAuthenticator(
                 return response.request.newBuilder().header("Authorization", "Bearer $current").build()
             }
             val refresh = tokenStore.refreshToken() ?: run {
-                tokenStore.clear()
+                tokenStore.clearAfterAuthFailure()
                 return null
             }
             val body = json.encodeToString(RefreshRequest(refresh))
@@ -44,7 +47,7 @@ class TokenAuthenticator(
                 client.newCall(refreshRequest).execute().use { refreshResponse ->
                     if (!refreshResponse.isSuccessful) {
                         if (refreshResponse.code == 401 || refreshResponse.code == 403) {
-                            tokenStore.clear()
+                            tokenStore.clearAfterAuthFailure()
                         }
                         null
                     } else {

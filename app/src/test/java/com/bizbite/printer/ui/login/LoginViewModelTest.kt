@@ -1,6 +1,8 @@
 package com.bizbite.printer.ui.login
 
 import com.bizbite.printer.data.auth.AuthRepository
+import com.bizbite.printer.data.auth.AutoPairManager
+import com.bizbite.printer.data.auth.AutoPairState
 import com.bizbite.printer.data.auth.LoginResult
 import com.bizbite.printer.data.remote.BbnHttpException
 import com.bizbite.printer.data.remote.BbnUser
@@ -56,12 +58,14 @@ class LoginViewModelTest {
             val auth = mockk<AuthRepository>()
             val session = mockk<SessionManager>(relaxed = true)
             val identity = mockk<SellerIdentityStore>(relaxed = true)
+            val pairing = mockk<AutoPairManager>()
+            coEvery { pairing.onSellerLogin(any()) } returns AutoPairState.NotPaired
             val pendingResult = CompletableDeferred<LoginResult>()
             coEvery { auth.login("9876543210", "2468") } coAnswers { pendingResult.await() }
             val expectedResult = LoginResult(
                 "seller-token", true, "Seller", BbnUser("id", "Shop", "Seller", "9876543210")
             )
-            val viewModel = LoginViewModel(auth, session, identity)
+            val viewModel = LoginViewModel(auth, session, identity, pairing)
             viewModel.phoneChanged("+91 98765 43210")
             viewModel.pinChanged("24x68")
 
@@ -90,7 +94,7 @@ class LoginViewModelTest {
             val session = mockk<SessionManager>(relaxed = true)
             val identity = mockk<SellerIdentityStore>(relaxed = true)
             coEvery { auth.login(any(), any()) } returns LoginResult("seller-token", false, "Seller", null)
-            val viewModel = LoginViewModel(auth, session, identity)
+            val viewModel = LoginViewModel(auth, session, identity, mockk(relaxed = true))
             viewModel.phoneChanged("9876543210")
             viewModel.pinChanged("2468")
 
@@ -111,7 +115,7 @@ class LoginViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
             val auth = mockk<AuthRepository>()
-            val viewModel = LoginViewModel(auth, mockk(relaxed = true), mockk(relaxed = true))
+            val viewModel = LoginViewModel(auth, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true))
             viewModel.phoneChanged("12345")
             viewModel.pinChanged("1")
 
@@ -129,7 +133,7 @@ class LoginViewModelTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
             val auth = mockk<AuthRepository>()
-            val viewModel = LoginViewModel(auth, mockk(relaxed = true), mockk(relaxed = true))
+            val viewModel = LoginViewModel(auth, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true))
             viewModel.phoneChanged("9876543210")
 
             viewModel.login()

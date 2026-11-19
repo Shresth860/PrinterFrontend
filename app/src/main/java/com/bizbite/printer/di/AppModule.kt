@@ -16,6 +16,8 @@ import com.bizbite.printer.data.session.PersistentSessionManager
 import com.bizbite.printer.data.session.SessionManager
 import com.bizbite.printer.data.menu.MenuRepository
 import com.bizbite.printer.data.menu.BbnMenuRepository
+import com.bizbite.printer.features.creditDebitNotes.services.CreditDebitNotesRepository
+import com.bizbite.printer.features.creditDebitNotes.services.BbnCreditDebitNotesRepository
 import com.bizbite.printer.domain.repository.PrinterRepository
 import com.bizbite.printer.printer.PrinterConnectionFactory
 import com.bizbite.printer.printer.PrinterConnectionFactoryImpl
@@ -54,6 +56,7 @@ abstract class AppBindings {
     @Binds @Singleton abstract fun bindSessionManager(implementation: PersistentSessionManager): SessionManager
     @Binds @Singleton abstract fun bindAuthRepository(implementation: BbnAuthRepository): AuthRepository
     @Binds @Singleton abstract fun bindMenuRepository(implementation: BbnMenuRepository): MenuRepository
+    @Binds @Singleton abstract fun bindCreditDebitNotesRepository(implementation: BbnCreditDebitNotesRepository): CreditDebitNotesRepository
 }
 
 @Module
@@ -104,7 +107,10 @@ object AppModule {
             }.build()
             chain.proceed(request)
         }
-        val logging = HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.NONE }
+        val logging = HttpLoggingInterceptor().apply {
+            redactHeader("Authorization")
+            level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
+        }
         return OkHttpClient.Builder()
             .addInterceptor(authHeader)
             .addInterceptor(logging)
@@ -164,6 +170,14 @@ object AppModule {
     fun bbnRetrofit(@Named("bbnClient") client: OkHttpClient, json: Json): Retrofit =
         Retrofit.Builder().baseUrl(BuildConfig.BBN_BASE_URL).client(client)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType())).build()
+
+    /** Dedicated create-note client: never replay a POST after an ambiguous transport failure. */
+    @Provides @Singleton @Named("bbnCreateApi")
+    fun bbnCreateApi(@Named("bbnClient") source: OkHttpClient, json: Json): com.bizbite.printer.data.remote.BbnApi =
+        Retrofit.Builder().baseUrl(BuildConfig.BBN_BASE_URL)
+            .client(source.newBuilder().retryOnConnectionFailure(false).build())
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build().create(com.bizbite.printer.data.remote.BbnApi::class.java)
 
     @Provides @Singleton
     fun bbnApi(@Named("bbnRetrofit") retrofit: Retrofit): com.bizbite.printer.data.remote.BbnApi =

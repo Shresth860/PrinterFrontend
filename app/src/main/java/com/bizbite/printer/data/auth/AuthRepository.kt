@@ -5,8 +5,10 @@ import com.bizbite.printer.data.remote.BbnHttpException
 import com.bizbite.printer.data.remote.LoginAppRequest
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 
-data class LoginResult(val token: String, val isAgreed: Boolean, val role: String?, val user: com.bizbite.printer.data.remote.BbnUser?)
+data class LoginResult(val token: String, val isAgreed: Boolean, val role: String?, val user: com.bizbite.printer.data.remote.BbnUser?, val sellerKey: String? = null)
 
 interface AuthRepository {
     suspend fun login(phone: String, pin: String): LoginResult
@@ -19,7 +21,18 @@ class BbnAuthRepository @Inject constructor(private val api: BbnApi) : AuthRepos
         response.requireSuccess()
         val role = response.user?.role
         require(role == "Seller" || role == "Staff") { "This app supports Seller and Staff accounts only." }
-        return LoginResult(response.token ?: error("Login response did not include a session token."), response.isAgreed ?: (role == "Staff"), role, response.user)
+        val profile = response.profile as? kotlinx.serialization.json.JsonObject
+        val sellerKey = response.user?.id?.takeIf(String::isNotBlank)
+            ?: sequenceOf("seller_id", "sellerId", "seller", "_id", "id")
+                .mapNotNull { profile?.get(it)?.let { value ->
+                    when (value) {
+                        is kotlinx.serialization.json.JsonPrimitive -> value.contentOrNull
+                        is kotlinx.serialization.json.JsonObject -> value["id"]?.jsonPrimitive?.contentOrNull
+                            ?: value["_id"]?.jsonPrimitive?.contentOrNull
+                        else -> null
+                    }
+                }?.takeIf(String::isNotBlank) }.firstOrNull()
+        return LoginResult(response.token ?: error("Login response did not include a session token."), response.isAgreed ?: (role == "Staff"), role, response.user, sellerKey)
     }
 }
 

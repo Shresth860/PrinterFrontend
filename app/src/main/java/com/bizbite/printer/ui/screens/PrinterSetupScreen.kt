@@ -73,6 +73,7 @@ fun PrinterSetupScreen(model: MainViewModel) {
     val printers by model.printers.collectAsState()
     val message by model.message.collectAsState()
     val printerStatus by model.printerStatus.collectAsState()
+    val autoPairState by model.autoPairState.collectAsState()
     var type by remember { mutableStateOf(ConnectionType.LAN) }
     var name by remember { mutableStateOf("") }
     var address by remember { mutableStateOf("") }
@@ -220,6 +221,7 @@ fun PrinterSetupScreen(model: MainViewModel) {
             AccessibleIconButton(com.bizbite.printer.R.drawable.ic_add, stringResource(com.bizbite.printer.R.string.add_printer), { showAddForm = !showAddForm })
         }
         AppSearchField(search, { search = it }, stringResource(com.bizbite.printer.R.string.search_printers))
+        com.bizbite.printer.ui.components.AutoPairNotice(autoPairState, model::retryPairing)
         if (savedPrinters.isEmpty()) Text(stringResource(if (printers.isEmpty()) com.bizbite.printer.R.string.no_saved_printers else com.bizbite.printer.R.string.no_printers_found), color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant)
         savedPrinters.forEach { saved ->
             PrinterCard(
@@ -230,7 +232,7 @@ fun PrinterSetupScreen(model: MainViewModel) {
                 }) else null
             )
         }
-        message?.let { Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.primary) }
+        message?.takeUnless { it.startsWith("Printer configuration sync failed") }?.let { Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.primary) }
         if (showAddForm) {
             androidx.compose.material3.Card(shape = androidx.compose.material3.MaterialTheme.shapes.medium) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

@@ -6,6 +6,8 @@ import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 @Singleton
 class TokenStore @Inject constructor(@ApplicationContext context: Context) {
@@ -16,6 +18,11 @@ class TokenStore @Inject constructor(@ApplicationContext context: Context) {
         EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
+
+    private val generation = MutableStateFlow(0L)
+    private val authInvalidationGeneration = MutableStateFlow(0L)
+    val changes = generation.asStateFlow()
+    val authInvalidations = authInvalidationGeneration.asStateFlow()
 
     @Synchronized fun accessToken(): String? = preferences.getString(ACCESS, null)
     @Synchronized fun refreshToken(): String? = preferences.getString(REFRESH, null)
@@ -31,8 +38,17 @@ class TokenStore @Inject constructor(@ApplicationContext context: Context) {
             .putString(REFRESH, refresh)
             .putLong(ACCESS_EXPIRES_AT, expiresAtEpochMillis)
             .apply()
+        generation.value += 1
     }
-    @Synchronized fun clear() { preferences.edit().clear().apply() }
+    @Synchronized fun clear() {
+        preferences.edit().clear().apply()
+        generation.value += 1
+    }
+    @Synchronized fun clearAfterAuthFailure() {
+        preferences.edit().clear().apply()
+        generation.value += 1
+        authInvalidationGeneration.value += 1
+    }
 
     private companion object {
         const val ACCESS = "access"

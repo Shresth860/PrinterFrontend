@@ -1,0 +1,11 @@
+{
+  "success": true,
+  "invoice": { "id": "66a000000000000000000007", "number": "INV-2026-0007", "customer_id": "66b000000000000000000001", "total_paise": 105000, "status": "Issued" },
+  "payments": [{ "provider": "razorpay", "payment_id": "pay_mock_001", "captured_paise": 90000, "refunded_paise": 10000, "captured_at": "2026-11-19T09:00:00.000Z" }],
+  "paid_paise": 80000,
+  "due_paise": 25000,
+  "notes": [{ "note_number": "CN-FY-0001", "status": "Partially Settled", "previous_note": null }],
+  "settlement": { "refunded_paise": 10000, "pending_refund_paise": 5000, "manual_refund_paise": 0, "applied_paise": 0, "remaining_paise": 15000 },
+  "timeline": [{ "event": "payment_captured", "at": "2026-11-19T09:00:00.000Z", "actor_id": "SYSTEM" }],
+  "error_example": { "http_status": 404, "error": { "code": "INVOICE_NOT_FOUND", "message": "Invoice not found." } }
+}

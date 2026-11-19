@@ -41,6 +41,11 @@
     <string name="percent_discount_error">Percentage discount cannot exceed 100%.</string>
     <string name="flat_discount_error">Discount cannot exceed subtotal.</string>
     <string name="pair_printer_account">Pair printer account</string>
+    <string name="auto_pair_description">This device connects to your seller account automatically after sign-in.</string>
+    <string name="auto_pair_in_progress">Connecting your printer account automatically…</string>
+    <string name="auto_pair_success">Printer account connected. This device is ready to receive print jobs.</string>
+    <string name="auto_pair_failed">Automatic printer setup failed: %1$s</string>
+    <string name="retry_automatic_pairing">Retry automatic setup</string>
     <string name="manage_printer_account">Manage printer account</string>
     <string name="logout_title">Log out?</string>
     <string name="logout_message">You will need to sign in again to use this app.</string>
@@ -88,7 +93,13 @@
     <string name="printer_status_online">Online</string>
     <string name="printer_status_offline">Offline</string>
     <string name="printer_status_error">Error</string>
-    <string name="printer_status_unknown">Unknown</string>
+    <string name="printer_status_unknown">Not connected</string>
+    <string name="printer_setup_in_progress">Setting up printer…</string>
+    <string name="printer_setup_connected">Connected to server</string>
+    <string name="printer_setup_failed">Setup failed: %1$s</string>
+    <string name="retry">Retry</string>
+    <string name="printer_setup_billing_wait">Printer setup in progress, thoda wait karein.</string>
+    <string name="retry_print_only">Retry print</string>
     <string name="connection_bluetooth">Bluetooth</string>
     <string name="connection_wifi">Wi-Fi</string>
     <string name="connection_usb">USB</string>

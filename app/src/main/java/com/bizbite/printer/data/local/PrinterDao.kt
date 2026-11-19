@@ -60,6 +60,9 @@ interface PrinterDao {
     @Query("SELECT * FROM printer_config ORDER BY isDefault DESC")
     fun observePrinters(): Flow<List<PrinterEntity>>
 
+    @Query("SELECT * FROM printer_config ORDER BY isDefault DESC")
+    suspend fun allPrinters(): List<PrinterEntity>
+
     @Query("SELECT * FROM printer_config WHERE isDefault = 1 LIMIT 1")
     suspend fun defaultPrinter(): PrinterEntity?
 

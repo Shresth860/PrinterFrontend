@@ -85,6 +85,7 @@ fun DashboardScreen(
     val internet by model.internet.collectAsState()
     val backendAvailable by model.backendAvailable.collectAsState()
     val status by model.printerStatus.collectAsState()
+    val autoPairState by model.autoPairState.collectAsState()
     val storeName by profile.storeName.collectAsState()
     val recentOrders by profile.recentOrders.collectAsState()
     val batteryManager = remember { context.getSystemService(PowerManager::class.java) }
@@ -144,7 +145,9 @@ fun DashboardScreen(
             runCatching { context.startActivity(intent) }.onFailure {
                 context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(Uri.parse("package:${context.packageName}")))
             }
-        }
+        },
+        autoPairState = autoPairState,
+        onRetryPairing = model::retryPairing
     )
 }
 
@@ -169,7 +172,9 @@ private fun DashboardContent(
     onOpenHistory: () -> Unit,
     onOpenOrders: () -> Unit,
     onReviewBattery: () -> Unit,
-    onOpenNotifications: () -> Unit
+    onOpenNotifications: () -> Unit,
+    autoPairState: com.bizbite.printer.data.auth.AutoPairState = com.bizbite.printer.data.auth.AutoPairState.NotPaired,
+    onRetryPairing: () -> Unit = {}
 ) {
     val connectedCount = if (printer != null && printerStatus == PrinterStatus.CONNECTED) 1 else 0
     Column(
@@ -183,6 +188,7 @@ private fun DashboardContent(
             }
             AccessibleIconButton(R.drawable.ic_notifications, stringResource(R.string.notification_icon_description), onOpenNotifications)
         }
+        com.bizbite.printer.ui.components.AutoPairNotice(autoPairState, onRetryPairing)
 
         Card(
             Modifier.fillMaxWidth(),
