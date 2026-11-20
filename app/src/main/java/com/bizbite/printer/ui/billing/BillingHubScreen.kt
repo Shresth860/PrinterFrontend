@@ -1,6 +1,8 @@
 package com.bizbite.printer.ui.billing
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -31,34 +33,40 @@ fun BillingHubScreen(onOpenPrintSettings: () -> Unit = {}) {
     Column(Modifier.fillMaxSize()) {
         if (createSelection != null) {
             val (orderId, noteType) = createSelection!!
-            CreateCreditDebitNoteScreen(
-                orderId = orderId,
-                type = noteType,
-                canCreate = permissions.canCreateNotes,
-                canOverrideTax = permissions.canOverrideNoteTax,
-                onBack = { createSelection = null },
-                onOpenNoteDetail = { note, source -> createdNote = note to source; createSelection = null; tab = BillingTab.NOTES }
-            )
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                CreateCreditDebitNoteScreen(
+                    orderId = orderId,
+                    type = noteType,
+                    canCreate = permissions.canCreateNotes,
+                    canOverrideTax = permissions.canOverrideNoteTax,
+                    onBack = { createSelection = null },
+                    onOpenNoteDetail = { note, source -> createdNote = note to source; createSelection = null; tab = BillingTab.NOTES }
+                )
+            }
         } else if (placeholder != null) {
-            TextButton(onClick = { placeholder = null }) { Text("Back to billing") }
-            Text(placeholder!!, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(20.dp))
-            Text("This screen is a Phase 2 navigation placeholder.", modifier = Modifier.padding(horizontal = 20.dp))
+            Column(Modifier.weight(1f).fillMaxWidth()) {
+                TextButton(onClick = { placeholder = null }) { Text("Back to billing") }
+                Text(placeholder!!, style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(20.dp))
+                Text("This screen is a Phase 2 navigation placeholder.", modifier = Modifier.padding(horizontal = 20.dp))
+            }
         } else {
             ScrollableTabRow(selectedTabIndex = tab.ordinal) {
                 BillingTab.entries.forEach { item -> Tab(selected = item == tab, onClick = { tab = item }, text = { Text(item.title) }) }
             }
-            when (tab) {
-                BillingTab.COUNTER -> BillingScreen(onOpenHistory = { tab = BillingTab.HISTORY }, onOpenPrintSettings = onOpenPrintSettings)
-                BillingTab.HISTORY -> SellerOrderHistoryScreen(
-                    onCreditNote = { createSelection = it to NoteType.CREDIT },
-                    onDebitNote = { createSelection = it to NoteType.DEBIT },
-                    onFullCancellation = { placeholder = "Full Invoice Cancellation" },
-                    onViewNotes = { invoiceFilter = it; tab = BillingTab.NOTES },
-                    onPaymentHistory = { placeholder = "Payment/Refund History" },
-                    canCreateNotes = permissions.canCreateNotes,
-                    canFullCancel = permissions.canFullCancelInvoice
-                )
-                BillingTab.NOTES -> CreditDebitNotesScreen(initialInvoiceId = invoiceFilter, onCancelPlaceholder = { }, openNote = createdNote)
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (tab) {
+                    BillingTab.COUNTER -> BillingScreen(onOpenHistory = { tab = BillingTab.HISTORY }, onOpenPrintSettings = onOpenPrintSettings)
+                    BillingTab.HISTORY -> SellerOrderHistoryScreen(
+                        onCreditNote = { createSelection = it to NoteType.CREDIT },
+                        onDebitNote = { createSelection = it to NoteType.DEBIT },
+                        onFullCancellation = { placeholder = "Full Invoice Cancellation" },
+                        onViewNotes = { invoiceFilter = it; tab = BillingTab.NOTES },
+                        onPaymentHistory = { placeholder = "Payment/Refund History" },
+                        canCreateNotes = permissions.canCreateNotes,
+                        canFullCancel = permissions.canFullCancelInvoice
+                    )
+                    BillingTab.NOTES -> CreditDebitNotesScreen(initialInvoiceId = invoiceFilter, onCancelPlaceholder = { }, openNote = createdNote)
+                }
             }
         }
     }
@@ -87,54 +95,64 @@ private fun CreditDebitNotesScreen(
     LaunchedEffect(search, customer, invoice, reason, from, to, type, status, initialInvoiceId) {
         vm.updateFilters(CreditDebitNoteFilters(search, type, status, customer, initialInvoiceId, invoice, reason, from, to))
     }
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Credit/Debit Notes", style = MaterialTheme.typography.titleLarge)
-        TextButton(onClick = vm::refresh, enabled = !state.loading && !state.refreshing) { Text(if (state.refreshing) "Refreshing…" else "Refresh notes") }
-        Text("Filters loaded notes par lagte hain", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        OutlinedTextField(search, { search = it }, label = { Text("Search notes") }, modifier = Modifier.fillMaxWidth())
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(from, { from = it }, label = { Text("From YYYY-MM-DD") }, modifier = Modifier.weight(1f), singleLine = true)
-            OutlinedTextField(to, { to = it }, label = { Text("To YYYY-MM-DD") }, modifier = Modifier.weight(1f), singleLine = true)
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(type == null, { type = null }, label = { Text("All types") })
-            FilterChip(type == NoteType.CREDIT, { type = if (type == NoteType.CREDIT) null else NoteType.CREDIT }, label = { Text("Credit") })
-            FilterChip(type == NoteType.DEBIT, { type = if (type == NoteType.DEBIT) null else NoteType.DEBIT }, label = { Text("Debit") })
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(status == null, { status = null }, label = { Text("All status") })
-            listOf(NoteStatus.ISSUED, NoteStatus.PARTIALLY_SETTLED, NoteStatus.SETTLED, NoteStatus.CANCELLED).forEach { value ->
-                FilterChip(status == value, { status = if (status == value) null else value }, label = { Text(value.name.replace('_', ' ')) })
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item { Text("Credit/Debit Notes", style = MaterialTheme.typography.titleLarge) }
+        item { TextButton(onClick = vm::refresh, enabled = !state.loading && !state.refreshing) { Text(if (state.refreshing) "Refreshing…" else "Refresh notes") } }
+        item { Text("Filters loaded notes par lagte hain", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        item { OutlinedTextField(search, { search = it }, label = { Text("Search notes") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(from, { from = it }, label = { Text("From YYYY-MM-DD") }, modifier = Modifier.weight(1f), singleLine = true)
+                OutlinedTextField(to, { to = it }, label = { Text("To YYYY-MM-DD") }, modifier = Modifier.weight(1f), singleLine = true)
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(customer, { customer = it }, label = { Text("Customer") }, modifier = Modifier.weight(1f), singleLine = true)
-            OutlinedTextField(invoice, { invoice = it }, label = { Text("Invoice no.") }, modifier = Modifier.weight(1f), singleLine = true)
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(type == null, { type = null }, label = { Text("All types") })
+                FilterChip(type == NoteType.CREDIT, { type = if (type == NoteType.CREDIT) null else NoteType.CREDIT }, label = { Text("Credit") })
+                FilterChip(type == NoteType.DEBIT, { type = if (type == NoteType.DEBIT) null else NoteType.DEBIT }, label = { Text("Debit") })
+            }
         }
-        OutlinedTextField(reason, { reason = it }, label = { Text("Reason") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-        if (state.offline) Text("Offline · showing session-cached notes", color = MaterialTheme.colorScheme.tertiary)
-        state.source?.takeIf { it == DataSource.MOCK }?.let { Text("Simulation / Mock", color = MaterialTheme.colorScheme.tertiary) }
-        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error); TextButton(onClick = vm::refresh) { Text("Retry") } }
-        if (state.loading) CircularProgressIndicator()
-        else if (state.visibleNotes.isEmpty()) Text(if (state.notes.isEmpty()) "No notes found." else "No notes match these filters.")
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(state.visibleNotes, key = { it.id ?: it.number ?: it.hashCode().toString() }) { note ->
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text("${note.number ?: "Note"} · ${note.type?.apiValue?.uppercase() ?: "Unknown type"}", style = MaterialTheme.typography.titleMedium)
-                        Text("Invoice: ${note.invoiceNumber ?: note.invoiceId ?: "—"}")
-                        Text("${note.customerName ?: "Customer unavailable"} · ${maskPhone(note.customerPhone)}")
-                        Text("${note.createdAt ?: "Date unavailable"} · ${note.status.name}")
-                        Text("${(note.total ?: note.amount)?.formatInr() ?: "Amount unavailable"}")
-                        Row {
-                            TextButton(onClick = { vm.openDetail(note) }) { Text("View detail") }
-                            TextButton(onClick = onCancelPlaceholder, enabled = false) { Text("Cancel (Phase 4)") }
-                        }
+        item {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(status == null, { status = null }, label = { Text("All status") })
+                listOf(NoteStatus.ISSUED, NoteStatus.PARTIALLY_SETTLED, NoteStatus.SETTLED, NoteStatus.CANCELLED).forEach { value ->
+                    FilterChip(status == value, { status = if (status == value) null else value }, label = { Text(value.name.replace('_', ' '), maxLines = 1) })
+                }
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(customer, { customer = it }, label = { Text("Customer") }, modifier = Modifier.weight(1f), singleLine = true)
+                OutlinedTextField(invoice, { invoice = it }, label = { Text("Invoice no.") }, modifier = Modifier.weight(1f), singleLine = true)
+            }
+        }
+        item { OutlinedTextField(reason, { reason = it }, label = { Text("Reason") }, modifier = Modifier.fillMaxWidth(), singleLine = true) }
+        if (state.offline) item { Text("Offline · showing session-cached notes", color = MaterialTheme.colorScheme.tertiary) }
+        state.source?.takeIf { it == DataSource.MOCK }?.let { item { Text("Simulation / Mock", color = MaterialTheme.colorScheme.tertiary) } }
+        state.error?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error); TextButton(onClick = vm::refresh) { Text("Retry") } } }
+        if (state.loading) item { CircularProgressIndicator() }
+        else if (state.visibleNotes.isEmpty()) item { Text(if (state.notes.isEmpty()) "No notes found." else "No notes match these filters.") }
+        items(state.visibleNotes, key = { it.id ?: it.number ?: it.hashCode().toString() }) { note ->
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("${note.number ?: "Note"} · ${note.type?.apiValue?.uppercase() ?: "Unknown type"}", style = MaterialTheme.typography.titleMedium)
+                    Text("Invoice: ${note.invoiceNumber ?: note.invoiceId ?: "—"}")
+                    Text("${note.customerName ?: "Customer unavailable"} · ${maskPhone(note.customerPhone)}")
+                    Text("${note.createdAt ?: "Date unavailable"} · ${note.status.name}")
+                    Text("${(note.total ?: note.amount)?.formatInr() ?: "Amount unavailable"}")
+                    Row {
+                        TextButton(onClick = { vm.openDetail(note) }) { Text("View detail") }
+                        TextButton(onClick = onCancelPlaceholder, enabled = false) { Text("Cancel (Phase 4)") }
                     }
                 }
             }
-            if (state.hasMore) item { OutlinedButton(onClick = vm::loadMore, modifier = Modifier.fillMaxWidth()) { Text("Load more") } }
         }
+        if (state.hasMore) item { OutlinedButton(onClick = vm::loadMore, modifier = Modifier.fillMaxWidth()) { Text("Load more") } }
     }
     state.selectedNote?.let { note ->
         ModalBottomSheet(onDismissRequest = vm::closeDetail) {
