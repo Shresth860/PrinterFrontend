@@ -21,7 +21,8 @@ class PrintQueuePolicyTest {
 
     @Test
     fun retriesUseOneTwoFourEightSecondBackoffThenFailOnFifthAttempt() {
-        assertEquals(listOf(1_000L, 2_000L, 4_000L, 8_000L), (1..4).map(PrintQueuePolicy::retryDelayMillis))
+        assertEquals(listOf(2_000L, 4_000L, 8_000L, 16_000L), (1..4).map(PrintQueuePolicy::retryDelayMillis))
+        assertEquals(60_000L, PrintQueuePolicy.retryDelayMillis(20))
         var job = PrintJob("job-2", "{}")
         repeat(4) {
             job = PrintQueuePolicy.failure(job, "OFFLINE", "offline")
@@ -30,6 +31,31 @@ class PrintQueuePolicyTest {
         job = PrintQueuePolicy.failure(job, "OFFLINE", "offline")
         assertEquals(JobStatus.FAILED, job.status)
         assertEquals(5, job.retryCount)
+    }
+
+    @Test
+    fun printCanBeMarkedSentOnlyAfterCompleteFlushedTransferOnLiveConnection() {
+        assertEquals(
+            null,
+            PrintSuccessPolicy.failureReason(
+                PrintTransferCheck(true, true, bytesWritten = 512, expectedBytes = 512, flushSucceeded = true)
+            )
+        )
+        assertTrue(
+            PrintSuccessPolicy.failureReason(
+                PrintTransferCheck(true, false, bytesWritten = 512, expectedBytes = 512, flushSucceeded = true)
+            )!!.contains("disconnected")
+        )
+        assertTrue(
+            PrintSuccessPolicy.failureReason(
+                PrintTransferCheck(true, true, bytesWritten = 400, expectedBytes = 512, flushSucceeded = true)
+            )!!.contains("Only 400")
+        )
+        assertTrue(
+            PrintSuccessPolicy.failureReason(
+                PrintTransferCheck(true, true, bytesWritten = 512, expectedBytes = 512, flushSucceeded = false)
+            )!!.contains("flushed")
+        )
     }
 
     @Test

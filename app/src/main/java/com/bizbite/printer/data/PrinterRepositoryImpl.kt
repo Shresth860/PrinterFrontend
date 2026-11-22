@@ -21,6 +21,8 @@ import com.bizbite.printer.domain.model.PrinterConfig
 import com.bizbite.printer.domain.model.PrinterStatus
 import com.bizbite.printer.domain.model.ConnectionType
 import com.bizbite.printer.domain.queue.PrintQueuePolicy
+import com.bizbite.printer.domain.queue.PrintSuccessPolicy
+import com.bizbite.printer.domain.queue.PrintTransferCheck
 import com.bizbite.printer.domain.repository.PrinterRepository
 import com.bizbite.printer.printer.PrinterConnectionFactory
 import com.bizbite.printer.printer.PartialWriteException
@@ -159,13 +161,41 @@ class PrinterRepositoryImpl @Inject constructor(
                 val autoCut = settings.autoCut.firstValue()
                 val cashDrawer = settings.cashDrawer.firstValue()
                 val bytes = renderer.render(current.payload, printer.paperWidthMm, copies, autoCut, cashDrawer)
-                Log.d(TAG, "Writing ${bytes.size} bytes to ${printer.type} printer.")
+                Log.i(TAG, "Starting receipt write: ${bytes.size} bytes to ${printer.type} printer ${printer.address}.")
+                val connectedBeforeWrite = active.isConnected
                 active.write(bytes)
+                kotlinx.coroutines.delay(400L)
+                val failureReason = PrintSuccessPolicy.failureReason(
+                    PrintTransferCheck(
+                        connectedBeforeWrite = connectedBeforeWrite,
+                        connectedAfterWrite = active.isConnected,
+                        bytesWritten = bytes.size,
+                        expectedBytes = bytes.size,
+                        flushSucceeded = true,
+                    )
+                )
+                if (failureReason != null) {
+                    throw PartialWriteException(bytes.size, IOException(failureReason))
+                }
+                val deviceStatus = if (active is BluetoothSppConnection) readPostPrintStatus(active) else null
+                if (deviceStatus == PrinterStatus.DISCONNECTED) {
+                    throw PartialWriteException(bytes.size, IOException("Printer disconnected after receipt data was sent."))
+                }
+                if (deviceStatus == PrinterStatus.PAPER_OUT || deviceStatus == PrinterStatus.COVER_OPEN) {
+                    val code = if (deviceStatus == PrinterStatus.PAPER_OUT) "PAPER_OUT" else "COVER_OPEN"
+                    current = PrintQueuePolicy.failure(
+                        current, code,
+                        "Receipt data was sent, but the printer reports ${deviceStatus.name.lowercase().replace('_', ' ')}. Check paper/output before retrying."
+                    )
+                    persistStatus(current, reportedStatus = JobStatus.FAILED.name)
+                    enqueuePrinterStatus(printer.id, deviceStatus.name)
+                    return@withLock current
+                }
                 keepConnection = active is BluetoothSppConnection
                 current = current.copy(
                     status = JobStatus.SUCCESS,
-                    errorCode = null,
-                    errorMessage = null,
+                    errorCode = if (deviceStatus == null) "DELIVERY_UNCONFIRMED" else null,
+                    errorMessage = if (deviceStatus == null) "Receipt data was sent and flushed, but the printer did not return a status response. Paper output is unconfirmed." else null,
                     completedAt = System.currentTimeMillis()
                 )
                 persistStatus(current)
@@ -194,6 +224,7 @@ class PrinterRepositoryImpl @Inject constructor(
                     return@withLock current
                 }
                 persistStatus(current, reportedStatus = JobStatus.FAILED.name)
+                Log.w(TAG, "Printer retry ${current.retryCount}/$maxAttempts in ${PrintQueuePolicy.retryDelayMillis(current.retryCount)}ms ($classification).")
                 try {
                     connection?.disconnect()
                 } catch (disconnectFailure: Exception) {
@@ -267,13 +298,6 @@ class PrinterRepositoryImpl @Inject constructor(
                 status = status
             )
         )
-        try {
-            syncPrinterStatusOutbox()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            Log.w(TAG, "Printer status callback queued for retry.", failure)
-        }
     }
 
  
@@ -307,8 +331,10 @@ override suspend fun syncPrinters() {
         )
 
         if (!response.isSuccessful) {
+            val detail = runCatching { response.errorBody()?.string() }
+                .getOrNull()?.replace(Regex("[\\r\\n\\t]+"), " ")?.take(180)
             throw java.io.IOException(
-                "Printer configuration sync failed (HTTP ${response.code()})."
+                "Printer configuration sync failed (HTTP ${response.code()}): ${detail?.takeIf(String::isNotBlank) ?: "No server message was returned."}"
             )
         }
 
@@ -330,12 +356,10 @@ override suspend fun syncPrinters() {
 
     override suspend fun enqueueTestPrint(): String {
         val printer = defaultPrinter() ?: error("Add and select a default printer first.")
-        val remote = api.testPayload(printer.id)
-        val remotePayload = (remote as? kotlinx.serialization.json.JsonObject)?.get("payload") ?: remote
-        val payload = Json.parseToJsonElement(remotePayload.toString()).toString()
         val jobId = "$TEST_PRINT_ID_PREFIX${UUID.randomUUID()}"
+        val payload = """{"blocks":[{"type":"TEXT","text":"BizBite Printer Test","bold":true,"align":"CENTER"},{"type":"DIVIDER"},{"type":"TEXT","text":"Connection and receipt output test"},{"type":"TEXT","text":"Printer: ${printer.name}"},{"type":"TEXT","text":"Paper: ${printer.paperWidthMm} mm"},{"type":"TEXT","text":"If this receipt printed, local Bluetooth printing works."}]}"""
         dao.insertJobIfAbsent(LocalJobEntity.from(PrintJob(jobId, payload)))
-        Log.d(TAG, "Enqueued backend test payload in PENDING state.")
+        Log.d(TAG, "Enqueued local test receipt in PENDING state; no backend request needed.")
         return jobId
     }
 
@@ -387,6 +411,31 @@ override suspend fun syncPrinters() {
             } else if (!connection.isConnected) {
                 enqueuePrinterStatus(printer.id, "DISCONNECTED")
             }
+        }
+    }
+
+    private suspend fun readPostPrintStatus(connection: BluetoothSppConnection): PrinterStatus? {
+        return try {
+            val cover = connection.write(byteArrayOf(0x10, 0x04, 0x02))
+                .let { connection.read(1, 500) }
+                ?.firstOrNull()?.toInt()?.and(0xFF)
+            val paper = connection.write(byteArrayOf(0x10, 0x04, 0x04))
+                .let { connection.read(1, 500) }
+                ?.firstOrNull()?.toInt()?.and(0xFF)
+            Log.i(TAG, "Post-print ESC/POS status reply: cover=$cover paper=$paper connected=${connection.isConnected}.")
+            when {
+                !connection.isConnected -> PrinterStatus.DISCONNECTED
+                cover != null && (cover and 0x04) != 0 -> PrinterStatus.COVER_OPEN
+                paper != null && (paper and 0x08) != 0 -> PrinterStatus.PAPER_OUT
+                cover != null || paper != null -> PrinterStatus.CONNECTED
+                else -> {
+                    Log.w(TAG, "Printer accepted the bytes, but did not reply to ESC/POS status; delivery is unconfirmed.")
+                    null
+                }
+            }
+        } catch (failure: Exception) {
+            Log.e(TAG, "Could not read post-print ESC/POS status; receipt delivery is unconfirmed.", failure)
+            null
         }
     }
 
@@ -476,13 +525,6 @@ override suspend fun syncPrinters() {
                 errorMessage = job.errorMessage
             )
         )
-        try {
-            syncOutbox()
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            Log.w(TAG, "Job status callback queued for retry.", failure)
-        }
     }
 
     private fun requireSuccessful(response: retrofit2.Response<*>, operation: String) {

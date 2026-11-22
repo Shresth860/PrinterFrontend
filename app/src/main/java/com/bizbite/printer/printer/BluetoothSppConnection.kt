@@ -3,10 +3,7 @@ package com.bizbite.printer.printer
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
@@ -28,60 +25,29 @@ class BluetoothSppConnection(
 ) : PrinterConnection {
     private val appContext = context.applicationContext
     private val connectionMutex = Mutex()
-    @Volatile private var socket: BluetoothSocket? = null
-    @Volatile private var output: OutputStream? = null
+    private val resources = SocketResourceSlot<BluetoothSocket, OutputStream>(
+        closeOutput = { stream, reason ->
+            try {
+                stream.close()
+            } catch (failure: IOException) {
+                Log.e(TAG, "Failed to close RFCOMM output stream ($reason).", failure)
+            }
+        },
+        closeSocket = { active, reason ->
+            try {
+                active.close()
+                Log.i(TAG, "Closed RFCOMM socket ($reason).")
+            } catch (failure: IOException) {
+                Log.e(TAG, "Failed to close RFCOMM socket ($reason).", failure)
+            }
+        }
+    )
 
     override val isConnected: Boolean
-        get() = socket?.isConnected == true
-
-    private val aclReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != BluetoothDevice.ACTION_ACL_DISCONNECTED &&
-                intent.action != BluetoothDevice.ACTION_ACL_CONNECTED
-            ) return
-            val remote = if (Build.VERSION.SDK_INT >= 33) {
-                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-            } else {
-                @Suppress("DEPRECATION")
-                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-            }
-            val remoteAddress = try {
-                remote?.address
-            } catch (failure: SecurityException) {
-                Log.e(TAG, "Cannot inspect ACL device address without Bluetooth permission.", failure)
-                closeSocket()
-                return
-            }
-            val expectedAddress = try {
-                device.address
-            } catch (failure: SecurityException) {
-                Log.e(TAG, "Cannot inspect configured printer address without Bluetooth permission.", failure)
-                closeSocket()
-                return
-            }
-            if (remoteAddress != expectedAddress) return
-
-            if (intent.action == BluetoothDevice.ACTION_ACL_DISCONNECTED) {
-                Log.w(TAG, "ACL disconnected; closing the active printer socket.")
-                closeSocket()
-            } else {
-                Log.d(TAG, "ACL connected; RFCOMM socket state remains ${isConnected}.")
-            }
+        get() {
+            val (socket, output) = resources.snapshot()
+            return socket?.isConnected == true && output != null
         }
-    }
-
-    init {
-        val filter = IntentFilter().apply {
-            addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
-            addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
-        }
-        ContextCompat.registerReceiver(
-            appContext,
-            aclReceiver,
-            filter,
-            ContextCompat.RECEIVER_EXPORTED
-        )
-    }
 
     override suspend fun connect() = withContext(Dispatchers.IO) {
         connectionMutex.withLock {
@@ -90,73 +56,99 @@ class BluetoothSppConnection(
                 return@withLock
             }
             ensurePermissions()
+            Log.i(TAG, "Starting RFCOMM connection for ${safeAddress()}.")
+            if (resources.hasResources()) closeSocket("stale socket before reconnect")
+            if (!adapter.isEnabled) throw IOException("Bluetooth is turned off.")
 
             var lastFailure: IOException? = null
             repeat(CONNECT_ATTEMPTS) { attempt ->
                 Log.d(TAG, "SPP connect attempt ${attempt + 1}/$CONNECT_ATTEMPTS.")
-                adapter.cancelDiscovery()
+                cancelDiscoveryBeforeConnect()
 
                 val secureSocket = device.createRfcommSocketToServiceRecord(SPP_UUID)
                 try {
                     secureSocket.connect()
                     holdSocket(secureSocket)
-                    Log.d(TAG, "Secure RFCOMM socket connected=${isConnected}.")
+                    Log.i(TAG, "Secure RFCOMM socket connected=${isConnected}.")
                     return@withLock
                 } catch (failure: IOException) {
                     closeCandidate(secureSocket)
                     lastFailure = failure
-                    Log.e(TAG, "Secure RFCOMM connection failed; trying channel 1.", failure)
+                    Log.e(TAG, "Secure RFCOMM connection failed; trying insecure SPP.", failure)
                 } catch (failure: SecurityException) {
                     closeCandidate(secureSocket)
                     Log.e(TAG, "Bluetooth permission was denied while connecting.", failure)
                     throw failure
                 }
 
-                val fallbackSocket = try {
-                    createChannelOneSocket()
+                val insecureSocket = try {
+                    device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
                 } catch (failure: SecurityException) {
-                    Log.e(TAG, "Bluetooth permission was denied while creating the fallback socket.", failure)
+                    Log.e(TAG, "Bluetooth permission was denied while creating the insecure SPP socket.", failure)
                     throw failure
                 } catch (failure: Exception) {
-                    val cause = (failure as? InvocationTargetException)?.targetException
-                    val resolved = cause as? IOException ?: IOException(
-                        "Could not create the RFCOMM channel 1 socket.",
-                        cause ?: failure
-                    )
-                    lastFailure = resolved
-                    Log.e(TAG, "Could not create fallback RFCOMM socket.", failure)
+                    lastFailure = failure as? IOException ?: IOException("Could not create insecure SPP socket.", failure)
+                    Log.e(TAG, "Could not create insecure SPP socket; trying channel 1.", failure)
                     null
                 }
-                if (fallbackSocket != null) {
+                if (insecureSocket != null) {
                     try {
-                        adapter.cancelDiscovery()
-                        fallbackSocket.connect()
-                        holdSocket(fallbackSocket)
-                        Log.d(TAG, "Fallback RFCOMM socket connected=${isConnected}.")
+                        cancelDiscoveryBeforeConnect()
+                        insecureSocket.connect()
+                        holdSocket(insecureSocket)
+                        Log.i(TAG, "Insecure RFCOMM socket connected=${isConnected}.")
                         return@withLock
                     } catch (failure: IOException) {
-                        closeCandidate(fallbackSocket)
+                        closeCandidate(insecureSocket)
                         lastFailure = failure
-                        Log.e(TAG, "Fallback RFCOMM connection failed.", failure)
+                        Log.e(TAG, "Insecure RFCOMM connection failed; trying channel 1.", failure)
                     } catch (failure: SecurityException) {
-                        closeCandidate(fallbackSocket)
-                        Log.e(TAG, "Bluetooth permission was denied on fallback connection.", failure)
+                        closeCandidate(insecureSocket)
+                        Log.e(TAG, "Bluetooth permission was denied on insecure connection.", failure)
+                        throw failure
+                    }
+                }
+
+                val channelOneSocket = try {
+                    createChannelOneSocket()
+                } catch (failure: Exception) {
+                    val cause = (failure as? InvocationTargetException)?.targetException
+                    if (cause is SecurityException) throw cause
+                    lastFailure = cause as? IOException ?: IOException("Could not create RFCOMM channel 1 socket.", cause ?: failure)
+                    Log.e(TAG, "Could not create RFCOMM channel 1 socket.", failure)
+                    null
+                }
+                if (channelOneSocket != null) {
+                    try {
+                        cancelDiscoveryBeforeConnect()
+                        channelOneSocket.connect()
+                        holdSocket(channelOneSocket)
+                        Log.i(TAG, "RFCOMM channel 1 connected=${isConnected}.")
+                        return@withLock
+                    } catch (failure: IOException) {
+                        closeCandidate(channelOneSocket)
+                        lastFailure = failure
+                        Log.e(TAG, "RFCOMM channel 1 connection failed.", failure)
+                    } catch (failure: SecurityException) {
+                        closeCandidate(channelOneSocket)
+                        Log.e(TAG, "Bluetooth permission was denied on channel 1 connection.", failure)
                         throw failure
                     }
                 }
             }
-            throw lastFailure ?: IOException("Unable to connect to the Bluetooth printer.")
+            val failure = lastFailure ?: IOException("Unable to connect to the Bluetooth printer.")
+            Log.e(TAG, "RFCOMM connection failed for ${safeAddress()}.", failure)
+            throw failure
         }
     }
 
     override suspend fun disconnect() = withContext(Dispatchers.IO) {
-        connectionMutex.withLock { closeSocket() }
+        connectionMutex.withLock { closeSocket("disconnect requested") }
     }
 
     override suspend fun write(bytes: ByteArray): Unit = withContext(Dispatchers.IO) {
         connectionMutex.withLock {
-            val active = socket
-            val stream = output
+            val (active, stream) = resources.snapshot()
             if (active == null || stream == null || !isConnected) {
                 throw IOException("Bluetooth printer is disconnected.")
             }
@@ -171,11 +163,11 @@ class BluetoothSppConnection(
                     written += count
                     if (written < bytes.size) delay(CHUNK_DELAY_MS)
                 }
-                Log.d(TAG, "Wrote and flushed ${bytes.size} bytes; socket connected=${isConnected}.")
+                Log.i(TAG, "Wrote and flushed ${bytes.size} bytes; socket connected=${isConnected}.")
                 Unit
             } catch (failure: IOException) {
                 Log.e(TAG, "RFCOMM write failed after the transfer began.", failure)
-                closeSocket()
+                closeSocket("write failure")
                 if (transferStarted) throw PartialWriteException(maxOf(written, 1), failure)
                 throw failure
             }
@@ -183,39 +175,42 @@ class BluetoothSppConnection(
     }
 
     override suspend fun read(maxBytes: Int, timeoutMillis: Long): ByteArray? = withContext(Dispatchers.IO) {
-        val active = socket ?: return@withContext null
-        if (!isConnected) return@withContext null
-        val input = active.inputStream
-        val until = System.currentTimeMillis() + timeoutMillis
-        while (System.currentTimeMillis() < until) {
-            if (input.available() > 0) {
-                val buffer = ByteArray(maxBytes)
-                val size = input.read(buffer)
-                return@withContext if (size > 0) buffer.copyOf(size) else null
+        connectionMutex.withLock {
+            val active = resources.snapshot().first ?: return@withLock null
+            if (!isConnected) return@withLock null
+            val input = active.inputStream
+            val until = System.currentTimeMillis() + timeoutMillis
+            while (System.currentTimeMillis() < until) {
+                if (input.available() > 0) {
+                    val buffer = ByteArray(maxBytes)
+                    val size = input.read(buffer)
+                    return@withLock if (size > 0) buffer.copyOf(size) else null
+                }
+                delay(20)
             }
-            delay(20)
+            null
         }
-        null
     }
 
     private fun holdSocket(active: BluetoothSocket) {
         val stream = active.outputStream
-        output = stream
-        socket = active
+        resources.replace(active, stream, "replacing active socket")
     }
 
-    private fun closeSocket() {
-        val active = socket
-        socket = null
-        output = null
-        if (active != null) {
-            try {
-                active.close()
-            } catch (failure: IOException) {
-                Log.e(TAG, "Failed to close RFCOMM socket.", failure)
-            }
+    private suspend fun cancelDiscoveryBeforeConnect() {
+        adapter.cancelDiscovery()
+        repeat(DISCOVERY_STOP_CHECKS) {
+            if (!adapter.isDiscovering) return
+            delay(DISCOVERY_STOP_INTERVAL_MS)
         }
+        if (adapter.isDiscovering) throw IOException("Bluetooth discovery is still running; connection was not started.")
     }
+
+    private fun closeSocket(reason: String) {
+        resources.clear(reason)
+    }
+
+    private fun safeAddress(): String = try { device.address } catch (_: SecurityException) { "<permission denied>" }
 
     private fun closeCandidate(candidate: BluetoothSocket) {
         try {
@@ -264,6 +259,8 @@ class BluetoothSppConnection(
         val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
         const val CHUNK_SIZE = 512
         const val CHUNK_DELAY_MS = 20L
+        private const val DISCOVERY_STOP_CHECKS = 10
+        private const val DISCOVERY_STOP_INTERVAL_MS = 100L
         private const val CONNECT_ATTEMPTS = 1
         private const val TAG = "BizBiteSPP"
     }

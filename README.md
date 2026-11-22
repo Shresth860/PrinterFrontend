@@ -2,6 +2,8 @@
 
 Native Kotlin Android app for pairing a seller device with the BizBite Print Service, receiving jobs, and printing receipts using ESC/POS over Bluetooth SPP, USB host, or TCP/LAN. The app uses Jetpack Compose, MVVM, Room, DataStore, Retrofit/OkHttp, Hilt, WorkManager, and Firebase Cloud Messaging.
 
+Hindi project guide: [Project documentation](docs/project-documentation-hi.md) — architecture, navigation/API routes, screen behavior, sync, errors, retry rules, and what happens when a process is interrupted.
+
 ## Requirements
 
 - JDK 17 or newer (the Android Gradle Plugin runs on JDK 17+).

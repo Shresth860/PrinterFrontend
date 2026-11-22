@@ -225,8 +225,13 @@ fun JobCard(
     actions: @Composable (() -> Unit)? = null
 ) {
     val (icon, label, kind) = when (job.status) {
-        JobStatus.SUCCESS, JobStatus.COMPLETED -> Triple(R.drawable.ic_check_circle, stringResource(R.string.successful), StatusKind.ONLINE)
-        JobStatus.PENDING, JobStatus.PRINTING -> Triple(R.drawable.ic_clock, stringResource(R.string.in_queue), StatusKind.QUEUED)
+        JobStatus.SUCCESS, JobStatus.COMPLETED -> Triple(
+            R.drawable.ic_check_circle,
+            if (job.errorCode == "DELIVERY_UNCONFIRMED") stringResource(R.string.sent_unconfirmed) else stringResource(R.string.successful),
+            if (job.errorCode == "DELIVERY_UNCONFIRMED") StatusKind.NEUTRAL else StatusKind.ONLINE
+        )
+        JobStatus.PENDING -> Triple(R.drawable.ic_clock, stringResource(R.string.in_queue), StatusKind.QUEUED)
+        JobStatus.PRINTING -> Triple(R.drawable.ic_clock, stringResource(R.string.printing), StatusKind.QUEUED)
         JobStatus.FAILED -> Triple(R.drawable.ic_error_circle, stringResource(R.string.failed), StatusKind.ERROR)
         JobStatus.CANCELLED -> Triple(R.drawable.ic_error_circle, stringResource(R.string.cancelled), StatusKind.NEUTRAL)
     }

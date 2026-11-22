@@ -81,6 +81,14 @@
     <string name="notification_icon_description">Notifications</string>
     <string name="print_jobs">Print Jobs</string>
     <string name="successful">Successful</string>
+    <string name="sent_unconfirmed">Sent (unconfirmed)</string>
+    <string name="printing">Printing</string>
+    <string name="notifications_permission_title">Allow print notifications?</string>
+    <string name="notifications_permission_message">Notifications show when the background print service is active and help you notice print or connection problems.</string>
+    <string name="notifications_permission_denied">Notifications are disabled. Background print status may be harder to see; you can allow them in Settings.</string>
+    <string name="allow">Allow</string>
+    <string name="not_now">Not now</string>
+    <string name="delivery_unconfirmed_detail">Receipt data was sent and flushed, but the printer did not confirm paper output. Check the receipt before reprinting.</string>
     <string name="failed">Failed</string>
     <string name="in_queue">In Queue</string>
     <string name="recent_activity">Recent Activity</string>

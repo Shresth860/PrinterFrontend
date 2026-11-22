@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -142,6 +143,20 @@ class MainViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            var previousStatuses = emptyMap<String, com.bizbite.printer.domain.model.JobStatus>()
+            repository.jobs.collect { currentJobs ->
+                val completedTransfer = currentJobs.any { job ->
+                    previousStatuses[job.id] == com.bizbite.printer.domain.model.JobStatus.PRINTING &&
+                        job.status in setOf(
+                            com.bizbite.printer.domain.model.JobStatus.SUCCESS,
+                            com.bizbite.printer.domain.model.JobStatus.FAILED
+                        )
+                }
+                previousStatuses = currentJobs.associate { it.id to it.status }
+                if (completedTransfer) refreshPrinterStatus()
+            }
+        }
+        viewModelScope.launch {
             paired.value = repository.isPaired()
             internet.value = isInternetAvailable()
 
@@ -238,7 +253,11 @@ class MainViewModel @Inject constructor(
                 }
                 .first()
             if (result.status == com.bizbite.printer.domain.model.JobStatus.SUCCESS) {
-                message.value = "Test print completed."
+                message.value = if (result.errorCode == "DELIVERY_UNCONFIRMED") {
+                    result.errorMessage ?: "Test print data was sent; paper output is unconfirmed. Check the printer before retrying."
+                } else {
+                    "Test print data was sent and the printer responded to a status check. Confirm the receipt came out."
+                }
                 refreshPrinterStatus()
             } else {
                 message.value = "Print failed: ${result.errorMessage ?: result.errorCode ?: "Unknown error"}"

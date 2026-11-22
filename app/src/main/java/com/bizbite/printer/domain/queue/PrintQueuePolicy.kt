@@ -3,6 +3,26 @@ package com.bizbite.printer.domain.queue
 import com.bizbite.printer.domain.model.JobStatus
 import com.bizbite.printer.domain.model.PrintJob
 
+data class PrintTransferCheck(
+    val connectedBeforeWrite: Boolean,
+    val connectedAfterWrite: Boolean,
+    val bytesWritten: Int,
+    val expectedBytes: Int,
+    val flushSucceeded: Boolean,
+    val writeException: Throwable? = null
+)
+
+object PrintSuccessPolicy {
+    fun failureReason(check: PrintTransferCheck): String? = when {
+        check.writeException != null -> "Printer write failed: ${check.writeException.message ?: "unknown error"}"
+        !check.connectedBeforeWrite -> "Printer was disconnected before the receipt was sent."
+        !check.flushSucceeded -> "Printer output could not be flushed."
+        check.bytesWritten != check.expectedBytes -> "Only ${check.bytesWritten} of ${check.expectedBytes} receipt bytes were sent."
+        !check.connectedAfterWrite -> "Printer disconnected before the receipt transfer completed."
+        else -> null
+    }
+}
+
 object PrintQueuePolicy {
     const val MAX_ATTEMPTS = 5
 
@@ -27,8 +47,8 @@ object PrintQueuePolicy {
     }
 
     fun retryDelayMillis(attempt: Int): Long {
-        require(attempt in 1 until MAX_ATTEMPTS)
-        return 1_000L shl (attempt - 1)
+        require(attempt >= 1)
+        return (2_000L shl (attempt - 1).coerceAtMost(5)).coerceAtMost(60_000L)
     }
 
     private val NON_RETRYABLE_ERRORS = setOf("PAPER_OUT", "COVER_OPEN", "PERMISSION_DENIED")

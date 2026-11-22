@@ -27,14 +27,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -75,6 +80,7 @@ fun DashboardScreen(
     profile: SellerProfileViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 ) {
     val context = LocalContext.current
+    var showNotificationPermissionRationale by rememberSaveable { mutableStateOf(false) }
     val pendingCount by model.pendingCount.collectAsState()
     val lastPrint by model.lastPrintAt.collectAsState()
     val printers by model.printers.collectAsState()
@@ -99,6 +105,26 @@ fun DashboardScreen(
         val denied = results.filterValues { !it }.keys
         if (denied.isEmpty()) model.testPrint()
         else model.showMessage(context.getString(R.string.bluetooth_permission_denied, denied.joinToString(), if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) context.getString(R.string.nearby_devices_permission) else context.getString(R.string.location_permission)))
+    }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) model.showMessage(context.getString(R.string.notifications_permission_denied))
+    }
+
+    fun openNotifications() {
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            showNotificationPermissionRationale = true
+        } else {
+            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            runCatching { context.startActivity(intent) }.onFailure {
+                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(Uri.parse("package:${context.packageName}")))
+            }
+        }
     }
 
     fun requestTestPrint() {
@@ -140,15 +166,27 @@ fun DashboardScreen(
                 context.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).setData(Uri.parse("package:${context.packageName}")))
             }
         },
-        onOpenNotifications = {
-            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-            runCatching { context.startActivity(intent) }.onFailure {
-                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).setData(Uri.parse("package:${context.packageName}")))
-            }
-        },
+        onOpenNotifications = ::openNotifications,
         autoPairState = autoPairState,
         onRetryPairing = model::retryPairing
     )
+
+    if (showNotificationPermissionRationale) {
+        AlertDialog(
+            onDismissRequest = { showNotificationPermissionRationale = false },
+            title = { Text(stringResource(R.string.notifications_permission_title)) },
+            text = { Text(stringResource(R.string.notifications_permission_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showNotificationPermissionRationale = false
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }) { Text(stringResource(R.string.allow)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNotificationPermissionRationale = false }) { Text(stringResource(R.string.not_now)) }
+            }
+        )
+    }
 }
 
 @Composable

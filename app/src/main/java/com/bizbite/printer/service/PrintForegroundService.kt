@@ -34,6 +34,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
 
 @AndroidEntryPoint
 class PrintForegroundService : Service() {
@@ -101,17 +102,22 @@ class PrintForegroundService : Service() {
                 try {
                     if (repository.isPaired()) {
                         repository.recoverInterruptedJobs()
-                        try {
-                            repository.fetchPending()
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (failure: Exception) {
-                            Log.e(TAG, "Could not fetch pending print jobs.", failure)
-                        }
+                        // Drain jobs already stored on this phone before waiting on backend calls.
                         repository.processNext()
-                        repository.syncOutbox()
-                        repository.syncPrinters()
-                        repository.heartbeat()
+                        try {
+                            withTimeout(NETWORK_SYNC_TIMEOUT_MS) {
+                                repository.fetchPending()
+                                repository.syncOutbox()
+                                repository.syncPrinters()
+                                repository.heartbeat()
+                            }
+                        } catch (cancelled: CancellationException) {
+                            if (cancelled is kotlinx.coroutines.TimeoutCancellationException) {
+                                Log.w(TAG, "Backend sync exceeded ${NETWORK_SYNC_TIMEOUT_MS}ms; local print queue will continue.")
+                            } else throw cancelled
+                        } catch (failure: Exception) {
+                            Log.e(TAG, "Backend sync failed; local printing remains enabled.", failure)
+                        }
                     } else {
                         stopSelf()
                         return@launch
@@ -191,6 +197,7 @@ class PrintForegroundService : Service() {
         private const val CHANNEL_ID = "bizbite_print_service"
         private const val NOTIFICATION_ID = 101
         private const val POLL_INTERVAL_MS = 15_000L
+        private const val NETWORK_SYNC_TIMEOUT_MS = 10_000L
         private const val TAG = "BizBitePrintService"
 
         fun start(context: Context, action: String = ACTION_FETCH): Boolean {

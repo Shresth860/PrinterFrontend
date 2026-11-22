@@ -75,6 +75,9 @@ private fun JobHistoryContent(
                     if (job.status == JobStatus.FAILED && job.errorMessage != null) {
                         Text(job.errorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
+                    if (job.status == JobStatus.SUCCESS && job.errorCode == "DELIVERY_UNCONFIRMED") {
+                        Text(job.errorMessage ?: stringResource(R.string.delivery_unconfirmed_detail), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    }
                     if (job.errorCode == "POSSIBLE_PARTIAL") {
                         Text(stringResource(R.string.possible_partial_warning), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }

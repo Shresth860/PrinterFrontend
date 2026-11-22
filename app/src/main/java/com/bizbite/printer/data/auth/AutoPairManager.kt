@@ -179,17 +179,32 @@ class AutoPairManager @Inject constructor(
         is PairingSetupException -> failure.canRetry
         is BbnHttpException -> failure.statusCode in setOf(500, 502, 503, 504)
         is HttpException -> failure.code() in setOf(408, 429, 500, 502, 503, 504)
-        is TimeoutCancellationException, is IOException -> true
+        is TimeoutCancellationException -> true
+        is IOException -> responseCodeFromMessage(failure.message)?.let { it in setOf(408, 429, 500, 502, 503, 504) } ?: true
         else -> false
     }
 
-    private fun safeReason(failure: Throwable?): String = when (httpStatus(failure ?: Exception())) {
-        502, 503, 504 -> "Printer setup server is starting or temporarily unavailable. Try again."
-        422 -> "The pairing code was rejected. Try pairing again."
-        else -> if (failure is TimeoutCancellationException) "Printer setup timed out. Try again."
-        else if (failure is IOException) "Network problem while setting up the printer. Check connection and retry."
-        else (failure?.message?.takeIf(String::isNotBlank) ?: "Printer setup failed. Try again.").take(180)
+    private fun safeReason(failure: Throwable?): String {
+        val status = httpStatus(failure ?: Exception()) ?: responseCodeFromMessage(failure?.message)
+        val detail = failure?.message?.substringAfter(":", missingDelimiterValue = "")
+            ?.trim()?.takeIf(String::isNotBlank)?.take(180)
+        return when (status) {
+            401 -> "Seller session expired. Sign in again."
+            502, 503, 504 -> "Printer setup server is temporarily unavailable (HTTP $status). ${detail ?: "Try again."}"
+            422 -> "The pairing code was rejected. Try pairing again."
+            else -> when {
+                status != null && status in 400..499 -> "Printer setup was rejected by the server (HTTP $status): ${detail ?: "Check printer details and retry."}"
+                status != null && status in 500..599 -> "Printer setup server is temporarily unavailable (HTTP $status): ${detail ?: "Try again."}"
+                failure is TimeoutCancellationException -> "Printer setup timed out. Try again."
+                failure is IOException -> "Network problem while setting up the printer. Check connection and retry."
+                else -> (failure?.message?.takeIf(String::isNotBlank) ?: "Printer setup failed. Try again.").take(180)
+            }
+        }
     }
+
+    private fun responseCodeFromMessage(message: String?): Int? = message
+        ?.let { Regex("HTTP (\\d{3})", RegexOption.IGNORE_CASE).find(it) }
+        ?.groupValues?.getOrNull(1)?.toIntOrNull()
 
     private class PairingSetupException(message: String, val canRetry: Boolean) : IOException(message)
 

@@ -36,7 +36,13 @@ class ReceiptRenderer @Inject constructor() {
         val width = if (paperWidthMm == 58) 384 else 576
         val builder = EscPosBuilder().initialize()
         repeat(copies) {
-            blocks.forEach { block -> renderBlock(builder, block, width, paperWidthMm) }
+            var printableBlocks = 0
+            blocks.forEach { block ->
+                if (renderBlock(builder, block, width, paperWidthMm)) printableBlocks++
+            }
+            require(printableBlocks > 0) {
+                "Receipt has no supported printable blocks. Check the receipt payload format."
+            }
             builder.feed(3)
             if (cashDrawer) builder.cashDrawerPulse()
             if (autoCut) builder.cut()
@@ -72,9 +78,9 @@ class ReceiptRenderer @Inject constructor() {
         }
     }
 
-    private fun renderBlock(builder: EscPosBuilder, element: JsonElement, width: Int, paperWidthMm: Int) {
-        val block = element as? JsonObject ?: return
-        val type = block.string("type")?.uppercase() ?: return
+    private fun renderBlock(builder: EscPosBuilder, element: JsonElement, width: Int, paperWidthMm: Int): Boolean {
+        val block = element as? JsonObject ?: return false
+        val type = block.string("type")?.uppercase() ?: return false
         val value = block.string("text") ?: block.string("value").orEmpty()
         when (type) {
             "TEXT" -> {
@@ -125,6 +131,7 @@ class ReceiptRenderer @Inject constructor() {
                 }.getOrNull()
                 if (image == null) {
                     Log.w(TAG, "Skipped image receipt block with invalid bitmap data.")
+                    return false
                 } else {
                     try {
                         val scaledHeight = (image.height.toLong() * width / image.width).toInt().coerceAtLeast(1)
@@ -145,6 +152,7 @@ class ReceiptRenderer @Inject constructor() {
             "FEED" -> builder.feed(block.int("lines", 1).coerceIn(0, 20))
             else -> Log.w(TAG, "Skipped unsupported receipt block type: $type")
         }
+        return type in PRINTABLE_BLOCK_TYPES
     }
 
     private fun appendText(builder: EscPosBuilder, text: String, width: Int) {
@@ -188,5 +196,8 @@ class ReceiptRenderer @Inject constructor() {
         else -> EscPosBuilder.Alignment.LEFT
     }
 
-    private companion object { const val TAG = "BizBiteReceipt" }
+    private companion object {
+        const val TAG = "BizBiteReceipt"
+        val PRINTABLE_BLOCK_TYPES = setOf("TEXT", "TWO_COLUMN", "ITEM_ROW", "DIVIDER", "IMAGE", "QR", "BARCODE")
+    }
 }
